@@ -2,11 +2,11 @@
     "mcpServers": {
         "echo": {
             "command": "python",
-            "args": ["mcp/echo_server.py"]
+            "args": ["mcp_servers/echo_server.py"]
         },
         "calculator": {
             "command": "python",
-            "args": ["mcp/calculator_server.py"]
+            "args": ["mcp_servers/calculator_server.py"]
         }
     }
 }

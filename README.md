@@ -5,7 +5,7 @@
 ## 项目结构
 
 ```
-├── mcp/            # MCP 服务器示例
+├── mcp_servers/            # MCP 服务器示例
 │   ├── echo_server.py      # 回显服务器
 │   └── calculator_server.py # 计算器服务器
 ├── skills/         # 自定义 Skill 示例
@@ -20,7 +20,7 @@
 pip install -r requirements.txt
 
 # 运行 MCP echo 服务器
-python mcp/echo_server.py
+python mcp_servers/echo_server.py
 ```
 
 ## MCP 服务器

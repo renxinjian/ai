@@ -1,11 +1,17 @@
 # Python
 __pycache__/
 *.py[cod]
+<<<<<<< HEAD
+=======
+*$py.class
+*.so
+>>>>>>> 40dbc284c9d6adcf4f26d6fa6398acf074adad6f
 *.egg-info/
 dist/
 build/
 .eggs/
 
+<<<<<<< HEAD
 # Node
 node_modules/
 mcp-servers/node/dist/
@@ -19,10 +25,27 @@ mcp-servers/node/dist/
 .vscode/
 *.swp
 *.swo
+=======
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+>>>>>>> 40dbc284c9d6adcf4f26d6fa6398acf074adad6f
 
 # OS
 .DS_Store
 Thumbs.db
+<<<<<<< HEAD
 
 # Logs
 logs/
@@ -30,3 +53,6 @@ logs/
 
 # Docker
 docker-data/
+=======
+>>>>>>> 40dbc284c9d6adcf4f26d6fa6398acf074adad6f
+app/__pycache__/

@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "echo": {
+            "command": "python",
+            "args": ["mcp_servers/echo_server.py"]
+        },
+        "calculator": {
+            "command": "python",
+            "args": ["mcp_servers/calculator_server.py"]
+        }
+    }
+}

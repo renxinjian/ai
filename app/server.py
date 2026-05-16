@@ -1,3 +1,4 @@
+from app.skill_pages import NEW_WIZARD_HTML, MARKET_INSTALLER_HTML
 """
 AI Platform - 统一大系统
 一个服务包含: API / MCP / Skill 编辑器 / 沙箱测试 / 数据库管理
@@ -8,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Optional
+from app.skill_engine import execute_skill, get_engine_input_schema, ENGINES, ENGINE_META, PRESET_SKILLS, SKILL_SCHEMA
 from app.skill_templates import match_templates, generate_skill_from_description, get_template_list, get_template_detail
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -1107,6 +1109,87 @@ function showToast(msg, type){
 async def skill_wizard():
     return WIZARD_HTML
 
+
+
+# ═══════════════════════════════════════════════
+# API: 引擎执行 (声明式 .skill 模式)
+# ═══════════════════════════════════════════════
+
+@app.get("/api/engines")
+async def list_engines():
+    """列出所有可用引擎"""
+    return {"engines": ENGINE_META, "total": len(ENGINE_META)}
+
+
+@app.get("/api/engines/{ename}")
+async def engine_detail(ename: str):
+    """获取引擎详情（含参数定义）"""
+    if ename not in ENGINES:
+        raise HTTPException(404, "引擎不存在")
+    inputs = get_engine_input_schema(ename)
+    return {"engine": ename, "meta": ENGINE_META.get(ename, {}), "inputs": inputs}
+
+
+@app.post("/api/skills/execute")
+async def execute_skill_api(data: dict):
+    """执行一个完整的 .skill 定义"""
+    skill_def = data.get("skill", {})
+    input_data = data.get("input_data", {})
+    if not skill_def.get("engine"):
+        raise HTTPException(400, "缺少 engine 字段")
+    result = execute_skill(skill_def, input_data)
+    return result
+
+
+@app.get("/api/preset-skills")
+async def list_preset_skills():
+    """获取预设 .skill 列表（可直接下载安装）"""
+    return {"skills": PRESET_SKILLS, "total": len(PRESET_SKILLS)}
+
+
+@app.get("/api/preset-skills/{sid}")
+async def get_preset_skill(sid: str):
+    """获取单个预设 .skill（返回 .skill 格式）"""
+    for s in PRESET_SKILLS:
+        if s["id"] == sid:
+            return {"skill": s}
+    raise HTTPException(404, "不存在")
+
+
+@app.get("/api/skills/{sid}/download")
+async def download_skill(sid: int):
+    """从数据库下载 Skill 为 .skill 文件"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM user_skills WHERE id=%s", (sid,))
+            skill = cursor.fetchone()
+        if not skill: raise HTTPException(404, "不存在")
+        # 转换为 .skill 格式
+        skill_file = {
+            "id": str(skill["id"]),
+            "name": skill["name"],
+            "description": skill["description"],
+            "engine": "calculator",
+            "version": skill["version"],
+            "category": skill["category"],
+            "config": {},
+            "inputs": [{"key": "input", "label": "输入", "type": "textarea"}],
+            "outputs": [{"key": "output", "label": "结果", "type": "json"}],
+        }
+        return JSONResponse(content=skill_file, headers={"Content-Disposition": f"attachment; filename={skill['name']}.skill"})
+    finally:
+        conn.close()
+
+
+@app.get("/wizard", response_class=HTMLResponse)
+async def new_wizard():
+    return NEW_WIZARD_HTML
+
+
+@app.get("/market-installer", response_class=HTMLResponse)
+async def market_installer():
+    return MARKET_INSTALLER_HTML
 
 if __name__ == "__main__":
     import uvicorn

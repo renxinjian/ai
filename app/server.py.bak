@@ -1,16 +1,3 @@
-DB_CONFIG = {
-    "host": "127.0.0.1",
-    "port": 3306,
-    "user": "app",
-    "password": "NQ8azLqKGH9z4LqO",
-    "database": "app",
-    "charset": "utf8mb4",
-}
-
-def get_db():
-    """获取数据库连接"""
-    return pymysql.connect(**DB_CONFIG, cursorclass=DictCursor)
-
 from app.skill_pages import NEW_WIZARD_HTML, MARKET_INSTALLER_HTML
 """
 AI Platform - 统一大系统
@@ -47,6 +34,25 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 # Vue SPA — 所有页面路由指向 index.html
+@app.get("/", response_class=HTMLResponse)
+async def index(): return INDEX_HTML
+
+@app.get("/editor", response_class=HTMLResponse)
+async def editor(): return EDITOR_HTML
+
+@app.get("/playground", response_class=HTMLResponse)
+async def playground(): return PLAYGROUND_HTML
+
+@app.get("/db", response_class=HTMLResponse)
+async def db_page(): return DB_HTML
+
+@app.get("/skills", response_class=HTMLResponse)
+async def skills_page(): return SKILLS_HTML
+
+
+# ═══════════════════════════════════════════════
+# API: 系统状态
+# ═══════════════════════════════════════════════
 
 @app.get("/api/status")
 async def status():
@@ -743,6 +749,7 @@ function showToast(msg, type){
 </body>
 </html>"""
 
+@app.get("/wizard", response_class=HTMLResponse)
 async def skill_wizard():
     return WIZARD_HTML
 
@@ -947,10 +954,12 @@ async def download_skill(sid: int):
         conn.close()
 
 
+@app.get("/wizard", response_class=HTMLResponse)
 async def new_wizard():
     return NEW_WIZARD_HTML
 
 
+@app.get("/market-installer", response_class=HTMLResponse)
 async def market_installer():
     return MARKET_INSTALLER_HTML
 
@@ -1230,6 +1239,7 @@ loadSkills();
 </body>
 </html>"""
 
+@app.get("/llm-test", response_class=HTMLResponse)
 async def llm_test_page():
     return LLM_TEST_HTML
 
@@ -1460,32 +1470,6 @@ async def call_llm(data: dict):
         return {"status": "error", "content": f"❌ 连接失败: {str(e)[:100]}", "error": str(e)}
 
 
-
-
-
-# ═══════════════════════════════════════════════
-# Vue SPA 入口 — 所有非API路径指向index.html
-# ═══════════════════════════════════════════════
-
-import os as _os
-STATIC_DIR = _os.path.join(_os.path.dirname(__file__), "static")
-
-@app.get("/{full_path:path}", response_class=HTMLResponse, include_in_schema=False)
-async def vue_spa(full_path: str):
-    if full_path.startswith(("api/", "static/")):
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    
-    idx = _os.path.join(STATIC_DIR, "index.html")
-    if _os.path.exists(idx):
-        with open(idx) as f:
-            html = f.read()
-        from fastapi.responses import Response
-        return Response(content=html, media_type="text/html", headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-        })
-    return "<h1>Not Found</h1>"
 
 if __name__ == "__main__":
     import uvicorn

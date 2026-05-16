@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+  <script src="/static/js/app.js"></script>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item active" class="nav-item active"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/store" class="nav-item"><span class="icon">🏪</span><span>技能商店</span></a>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">分析</div><a href="/dashboard" class="nav-item"><span class="icon">📊</span><span>数据看板</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div>
+</nav>
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="breadcrumb"><a href="/" class="nav-item active">首页</a> / 仪表盘</div>
+      <div class="page-title">🏠 仪表盘</div>
+    </div>
+    <div><span id="statusBadge" class="badge badge-success">● 运行中</span></div>
+  </div>
+  <div class="content">
+    <div class="grid-4" id="statsRow">
+      <div class="stat-card"><div class="num" id="statSkills">-</div><div class="label">📦 Skills</div></div>
+      <div class="stat-card"><div class="num" id="statTests">-</div><div class="label">🧪 测试次数</div></div>
+      <div class="stat-card"><div class="num" id="statPassRate">-</div><div class="label">✅ 通过率</div></div>
+      <div class="stat-card"><div class="num" id="statEngines">-</div><div class="label">⚙️ 引擎数</div></div>
+    </div>
+
+    <div class="grid-3" style="margin-top:28px">
+      <a href="/wizard" class="card" style="text-decoration:none;color:inherit;cursor:pointer">
+        <div style="font-size:36px;margin-bottom:8px">🧩</div>
+        <div class="card-title">技能工坊</div>
+        <div style="color:var(--text-secondary);font-size:13px;margin-top:6px">零代码创建技能，选模板→填参数→出结果</div>
+        <span class="badge badge-primary" style="margin-top:12px">15 引擎</span>
+      </a>
+      <a href="/llm-test" class="card" style="text-decoration:none;color:inherit;cursor:pointer">
+        <div style="font-size:36px;margin-bottom:8px">🤖</div>
+        <div class="card-title">大模型测试</div>
+        <div style="color:var(--text-secondary);font-size:13px;margin-top:6px">对话式测试 Skill，调节参数，实时反馈</div>
+        <span class="badge badge-success" style="margin-top:12px">LLM 就绪</span>
+      </a>
+      <a href="/market" class="card" style="text-decoration:none;color:inherit;cursor:pointer">
+        <div style="font-size:36px;margin-bottom:8px">📦</div>
+        <div class="card-title">Market 安装</div>
+        <div style="color:var(--text-secondary);font-size:13px;margin-top:6px">拖放或粘贴 .skill 文件，一键安装</div>
+        <span class="badge badge-purple" style="margin-top:12px">即装即用</span>
+      </a>
+    </div>
+
+    <div class="card" style="margin-top:28px">
+      <div class="card-header">
+        <div class="card-title">📋 最近活动</div>
+        <a href="/skills" class="btn btn-ghost-sm">查看全部</a>
+      </div>
+      <table>
+        <thead><tr><th>时间</th><th>类型</th><th>内容</th></tr></thead>
+        <tbody id="recentActivity"><tr><td colspan="3" style="color:var(--text-muted);text-align:center">暂无数据</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+async function loadStats() {
+  try {
+    const d = await apiFetch('/stats');
+    document.getElementById('statSkills').textContent = d.total_skills || 0;
+    document.getElementById('statTests').textContent = d.total_tests || 0;
+    document.getElementById('statPassRate').textContent = (d.pass_rate || 0) + '%';
+    document.getElementById('statEngines').textContent = d.mcp_tools || 15;
+  } catch(e) {}
+}
+loadStats();
+</script>
+</body>
+</html>

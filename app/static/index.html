@@ -189,7 +189,20 @@ const LlmTest = {
     currentSkillId: null, currentSkillName: '',
     inputText: '', modelId: '', temperature: 0.7, maxTokens: 500,
     provider: '⚡ 引擎模式', typing: false,
-    showModelManager: false, newModel: {name:'',provider:'custom',api_base:'',api_key:'',model_name:''},
+    showModelManager: false,
+  newModel: {name:"DeepSeek API",provider:"deepseek",api_base:"https://api.deepseek.com/v1",api_key:"",model_name:"deepseek-chat"},
+  providers: [
+    {id:"deepseek",name:"DeepSeek",icon:"\ud83d\udfe2",base:"https://api.deepseek.com/v1",model:"deepseek-chat",docs:"https://platform.deepseek.com/api_keys"},
+    {id:"openai",name:"OpenAI",icon:"\ud83d\udfe1",base:"https://api.openai.com/v1",model:"gpt-4o-mini",docs:"https://platform.openai.com/api-keys"},
+    {id:"qwen",name:"\u901a\u4e49\u5343\u95ee",icon:"\ud83d\udd35",base:"https://dashscope.aliyuncs.com/compatible-mode/v1",model:"qwen-plus",docs:"https://help.aliyun.com/zh/model-studio/developer"},
+    {id:"moonshot",name:"Moonshot",icon:"\ud83c\udf19",base:"https://api.moonshot.cn/v1",model:"moonshot-v1-8k",docs:"https://platform.moonshot.cn/console/api-keys"},
+    {id:"baidu",name:"\u6587\u5fc3\u4e00\u8a00",icon:"\ud83d\udd34",base:"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",model:"ernie-4.0",docs:"https://console.bce.baidu.com/qianfan/ais/console/application"},
+    {id:"zhipu",name:"GLM",icon:"\ud83d\udfe3",base:"https://open.bigmodel.cn/api/paas/v4",model:"glm-4-plus",docs:"https://open.bigmodel.cn/usercenter/apikeys"},
+    {id:"minimax",name:"MiniMax",icon:"\ud83e\udd16",base:"https://api.minimax.chat/v1",model:"minimax-text-01",docs:"https://platform.minimax.com/user-center/basic"},
+    {id:"custom",name:"\u81ea\u5b9a\u4e49",icon:"\u2699\ufe0f",base:"",model:"",docs:""},
+  ],
+  testingModel: false, testResult: null,
+
     execResult: null,
   }),
   async mounted() {
@@ -248,6 +261,28 @@ const LlmTest = {
       this.newModel = {name:'',provider:'custom',api_base:'',api_key:'',model_name:''};
       const d = await api.get('/models'); this.models = d.models || [];
       showToast('✅ 模型已添加');
+    },
+    getSelectedProvider() {
+      var p = this.providers.find(function(x) { return x.id === this.newModel.provider; });
+      return p || this.providers[this.providers.length-1];
+    },
+    onProviderChange() {
+      var p = this.getSelectedProvider();
+      this.newModel.api_base = p.base;
+      this.newModel.model_name = p.model;
+      this.newModel.name = p.name + ' API';
+      this.testResult = null;
+    },
+    async testApiKey() {
+      if (!this.newModel.api_key) { showToast('请输入 API Key','error'); return; }
+      this.testingModel = true;
+      this.testResult = null;
+      try {
+        var r = await fetch('/api/llm/test-key', {method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({api_base:this.newModel.api_base, api_key:this.newModel.api_key, model_name:this.newModel.model_name})});
+        this.testResult = await r.json();
+      } catch(e) { this.testResult = {success:false, message:'请求失败: '+e.message}; }
+      this.testingModel = false;
     },
     async activateModel(id) { await api.put('/models/'+id+'/activate'); const d = await api.get('/models'); this.models = d.models || []; },
     async deleteModel(id) { if (!confirm('确定删除？')) return; await api.del('/models/'+id); const d = await api.get('/models'); this.models = d.models || []; },
@@ -480,12 +515,19 @@ app.mount('#app');
       <div v-if="models.length===0" style="color:#556688;text-align:center;padding:16px">暂无模型，请添加</div>
       <div style="margin-top:16px;padding-top:16px;border-top:1px solid #1a2d4a">
         <div style="font-weight:600;margin-bottom:12px">＋ 添加模型</div>
-        <div class="form-row"><label>名称</label><input v-model="newModel.name" placeholder="如: DeepSeek V3"></div>
-        <div class="form-row"><label>提供商</label><input v-model="newModel.provider" placeholder="deepseek/openai/qwen"></div>
-        <div class="form-row"><label>API 地址</label><input v-model="newModel.api_base" placeholder="https://api.deepseek.com/v1"></div>
-        <div class="form-row"><label>API Key</label><input v-model="newModel.api_key" type="password" placeholder="sk-..."></div>
-        <div class="form-row"><label>模型名</label><input v-model="newModel.model_name" placeholder="deepseek-chat"></div>
-        <button class="btn btn-success" @click="addModel" style="width:100%;justify-content:center">➕ 添加</button>
+        <div class="form-row"><label>选择厂商</label><select v-model="newModel.provider" @change="onProviderChange"><option v-for="p in providers" :key="p.id" :value="p.id">{{p.icon}} {{p.name}}</option></select></div>
+        <div class="form-row"><label>名称</label><input v-model="newModel.name" placeholder="DeepSeek API"></div>
+        <div class="form-row"><label>API 地址</label><input :value="getSelectedProvider().base" readonly style="background:#0a121f;color:#556688"></div>
+        <div class="form-row"><label>API Key <a :href="getSelectedProvider().docs" target="_blank" style="color:#60a5fa;font-size:11px;margin-left:8px" v-if="getSelectedProvider().docs">获取 Key</a></label><input v-model="newModel.api_key" type="password" placeholder="输入你的 API Key..."></div>
+        <div class="form-row"><label>模型名</label><input :value="getSelectedProvider().model" readonly style="background:#0a121f;color:#8899bb"></div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-primary" @click="testApiKey" :disabled="testingModel || !newModel.api_key" style="flex:1;justify-content:center">{{testingModel ? '\u23f3 \u6d4b\u8bd5\u4e2d...' : '\u25b6 \u6d4b\u8bd5\u8fde\u63a5'}}</button>
+          <button class="btn btn-success" @click="addModel" style="flex:1;justify-content:center">+ 添加</button>
+        </div>
+        <div v-if="testResult" style="margin-top:12px;padding:10px 14px;border-radius:8px" :style="{background:testResult.success?'rgba(5,150,144,0.1)':'rgba(239,68,68,0.1)'}">
+          <div style="font-weight:600;font-size:13px">{{testResult.success ? '\u2705 \u8fde\u63a5\u6210功' : '\u274c \u8fde\u63a5\u5931\u8d25'}}</div>
+          <div style="font-size:12px;color:#8899bb;margin-top:4px;white-space:pre-wrap">{{testResult.message}}</div>
+        </div>
       </div>
     </div>
   </div>

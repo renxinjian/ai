@@ -1487,6 +1487,39 @@ async def vue_spa(full_path: str):
         })
     return "<h1>Not Found</h1>"
 
+
+
+@app.post("/api/llm/test-key")
+async def test_api_key(data: dict):
+    """测试 API Key 是否可用"""
+    import httpx
+    api_base = data.get("api_base", "").rstrip("/")
+    api_key = data.get("api_key", "")
+    model_name = data.get("model_name", "gpt-3.5-turbo")
+    
+    if not api_key:
+        return {"success": False, "message": "API Key 不能为空"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model_name, "messages": [{"role":"user","content":"hi"}], "max_tokens": 10}
+            )
+            if resp.status_code == 200:
+                return {"success": True, "message": f"响应正常 ({model_name})"}
+            elif resp.status_code == 401:
+                return {"success": False, "message": "API Key 无效 (401 Unauthorized)"}
+            elif resp.status_code == 429:
+                return {"success": True, "message": "连接成功 (需注意频率限制)"}
+            else:
+                return {"success": False, "message": f"返回状态码: {resp.status_code}\n{resp.text[:100]}"}
+    except httpx.ConnectError:
+        return {"success": False, "message": f"无法连接到 {api_base}\n请检查 API 地址是否正确"}
+    except Exception as e:
+        return {"success": False, "message": str(e)[:100]}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")

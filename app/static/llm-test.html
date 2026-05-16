@@ -59,20 +59,45 @@
 let skills = [];
 let currentSkillId = null;
 
+
 async function loadSkills() {
+async function loadSkills() {
+  const list = document.getElementById('skillList');
+  list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;text-align:center;padding:8px">⏳ 加载中...</div>';
   try {
-    const d = await apiFetch('/skills');
-    skills = d.skills || [];
-    const list = document.getElementById('skillList');
+    const r = await fetch('/api/skills');
+    const d = await r.json();
+    const skills = d.skills || [];
     if (skills.length) {
-      list.innerHTML = skills.map(s => 
-        `<div class="skill-item" onclick="selectSkill(${s.id},'${s.name}','${(s.description||'').replace(/'/g,"\'")}')">
-          🧩 ${s.name}
-          <br><small style="color:var(--text-muted)">${s.category} · ${s.test_count}次</small>
-        </div>`
-      ).join('');
+      list.innerHTML = '<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">已安装 '+skills.length+' 个技能</div>' +
+        skills.map(s => '<div class="skill-item" onclick="selectSkill('+s.id+',\''+(s.name||'').replace(/'/g,'')+'\',\''+((s.description||'')||'').replace(/'/g,'').substring(0,30)+'\')">🧩 '+s.name+'<br><small style=\"color:var(--text-muted)\">'+(s.category||'')+' \u00b7 '+(s.test_count||0)+'\u6b21</small></div>').join('');
+    } else {
+      fallbackLoad();
     }
-  } catch(e) {}
+  } catch(e) { fallbackLoad(); }
+}
+
+async function fallbackLoad() {
+  const list = document.getElementById('skillList');
+  try {
+    const r = await fetch('/api/preset-skills');
+    const d = await r.json();
+    const ps = d.skills || [];
+    if (ps.length) {
+      list.innerHTML = '<div style="font-size:11px;color:#f59e0b;margin-bottom:4px">\u26a0\ufe0f 商店预设</div>' +
+        ps.slice(0,10).map(s => '<div class=\"skill-item\" onclick=\"testEngine(\''+s.engine+'\',\''+s.name+'\')\" style=\"opacity:0.7\">'+(s.icon||'\U0001f9e9')+' '+s.name+'<br><small style=\"color:var(--text-muted)\">'+s.category+'</small></div>').join('');
+    }
+  } catch(e) { list.innerHTML = '<div style="color:var(--error)">\u274c \u52a0\u8f7d\u5931\u8d25</div>'; }
+}
+
+function testEngine(engine, name) {
+  addMsg('user','\u25b6 '+name);
+  showTyping();
+  fetch('/api/skills/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skill:{engine:engine},input_data:{text:'test',numbers:[1,2,3]}})})
+    .then(r=>r.json()).then(r=>{removeTyping();document.getElementById('execResultArea').classList.remove('hidden');if(r.status==='passed'){document.getElementById('execOutput').textContent=JSON.stringify(r.output,null,2);addMsg('assistant','\\u2705 '+name);}else{addMsg('assistant','\\u274c '+r.error);}}).catch(()=>{removeTyping()});
+}
+
+
 }
 
 function selectSkill(id, name, desc) {

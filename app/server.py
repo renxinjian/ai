@@ -1191,6 +1191,286 @@ async def new_wizard():
 async def market_installer():
     return MARKET_INSTALLER_HTML
 
+
+# ═══════════════════════════════════════════════
+# API: LLM 聊天测试（调用 OpenClaw Gateway / 引擎混合）
+# ═══════════════════════════════════════════════
+
+LLM_CONFIG = {
+    "gateway_url": "http://127.0.0.1:32537/v1/chat/completions",
+    "gateway_token": "f65f9b945f3d48723cbea6e37a06221d3fde0fdb457e23f8",
+    "model": "openclaw/default",
+}
+
+@app.post("/api/llm/chat")
+async def llm_chat(data: dict):
+    """调用 LLM 聊天，测试 Skill 输出"""
+    import httpx, json as _json
+    
+    messages = data.get("messages", [{"role": "user", "content": "你好"}])
+    system_prompt = data.get("system_prompt", "你是一个 AI 助手。")
+    temperature = data.get("temperature", 0.7)
+    max_tokens = data.get("max_tokens", 500)
+    
+    # 前置 system prompt
+    full_messages = [{"role": "system", "content": system_prompt}] + messages
+    
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                LLM_CONFIG["gateway_url"],
+                headers={
+                    "Authorization": f"Bearer {LLM_CONFIG['gateway_token']}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": LLM_CONFIG["model"],
+                    "messages": full_messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                return {
+                    "status": "success",
+                    "provider": "openclaw",
+                    "content": result["choices"][0]["message"]["content"],
+                    "usage": result.get("usage", {}),
+                }
+            else:
+                # Gateway 拒绝，降级到模拟
+                return _fallback_chat(messages, system_prompt)
+    except Exception:
+        return _fallback_chat(messages, system_prompt)
+
+
+def _fallback_chat(messages, system_prompt):
+    """降级：用内置引擎模拟 LLM 回复"""
+    user_msg = messages[-1]["content"] if messages else ""
+    
+    # 简单的关键词回复
+    responses = {
+        "你好": "你好！我是 AI 平台的内置助手。有什么可以帮助你的吗？",
+        "摘要": "我可以帮你生成文本摘要！请到 /wizard 选择「文本摘要」技能。",
+        "计算": "数据计算器已就绪！选择「数据计算器」技能，输入数字即可计算。",
+        "提取": "信息提取器可以提取邮箱、电话等。试试 /wizard 中的「信息提取器」。",
+        "密码": "密码生成器可以生成高强度密码。试试看！",
+        "默认": "我是 AI Platform 的演示助手。当前 LLM 网关尚未完全连通，但你可以：\n\n" \
+                "1️⃣ 使用 /wizard 的 15 个内置引擎\n" \
+                "2️⃣ 在 /market-installer 安装 .skill 文件\n" \
+                "3️⃣ 在 /editor 编写自定义技能\n\n你想试试哪个？"
+    }
+    
+    reply = "默认"
+    for keyword, response in responses.items():
+        if keyword in user_msg:
+            reply = response
+            break
+    if reply == "默认":
+        reply = responses["默认"]
+    
+    return {
+        "status": "success",
+        "provider": "fallback_engine",
+        "content": reply,
+        "usage": {},
+    }
+
+
+# ═══════════════════════════════════════════════
+# 大模型测试页面
+# ═══════════════════════════════════════════════
+
+LLM_TEST_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型测试 - AI Platform</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{background:#0a1628;color:#e0e8f0;height:100vh;display:flex;flex-direction:column}
+.topbar{background:#0d1d3a;border-bottom:1px solid #1e3d70;padding:12px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.topbar .title{font-weight:700;font-size:16px}
+.topbar a{color:#90b8f8;text-decoration:none;font-size:13px}
+.topbar a:hover{color:#60a5fa}
+.container{display:flex;flex:1;overflow:hidden}
+.sidebar{width:280px;background:#0d1d3a;border-right:1px solid #1e3d70;padding:16px;overflow-y:auto;flex-shrink:0}
+.sidebar h3{font-size:13px;color:#8098c0;margin-bottom:12px}
+.skill-item{padding:10px 12px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:2px;transition:all .2s}
+.skill-item:hover{background:#122a55}
+.skill-item.active{background:#1a56d6}
+.main{flex:1;display:flex;flex-direction:column}
+.chat-header{padding:14px 20px;border-bottom:1px solid #1e3d70;display:flex;justify-content:space-between;align-items:center}
+.chat-header .info{font-size:13px}
+.chat-header .badge{padding:3px 10px;border-radius:12px;font-size:10px;background:#1a56d633;color:#60a5fa}
+.msgs{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px}
+.msg{max-width:80%;padding:14px 18px;border-radius:12px;font-size:14px;line-height:1.6;animation:fadeIn .3s}
+.msg.user{background:#1a56d6;align-self:flex-end;border-bottom-right-radius:4px}
+.msg.assistant{background:#122a55;align-self:flex-start;border-bottom-left-radius:4px}
+.msg .meta{font-size:10px;color:#6080b0;margin-top:6px}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.input-area{padding:16px 20px;border-top:1px solid #1e3d70;display:flex;gap:12px;align-items:end}
+.input-area textarea{flex:1;background:#0a1628;border:1px solid #1e3d70;color:#e0e8f0;padding:12px 16px;border-radius:10px;font-size:14px;outline:none;resize:none;min-height:48px;max-height:120px;line-height:1.5}
+.input-area textarea:focus{border-color:#3b82f6}
+.btn{padding:10px 20px;border:none;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px;transition:all .2s}
+.btn-primary{background:linear-gradient(135deg,#1a56d6,#3b82f6);color:#fff}
+.btn-primary:hover{transform:translateY(-1px)}
+.btn-success{background:#059690;color:#fff}
+.settings-panel{padding:12px 20px;background:#0d1d3a;border-top:1px solid #1e3d70;display:flex;gap:16px;align-items:center;font-size:12px}
+.settings-panel label{color:#8098c0}
+.settings-panel input,select{background:#0a1628;border:1px solid #1e3d70;color:#e0e8f0;padding:6px 10px;border-radius:6px;font-size:12px}
+.typing{display:flex;gap:4px;padding:4px 0}
+.typing span{width:6px;height:6px;background:#6080b0;border-radius:50%;animation:bounce 1.4s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">🤖 大模型测试</span>
+  <a href="/">← 首页</a>
+  <a href="/wizard">🧩 工坊</a>
+  <span style="flex:1"></span>
+  <span id="providerBadge" class="badge" style="background:#d9770a33;color:#f59e0b;padding:3px 10px;border-radius:12px;font-size:11px">准备就绪</span>
+</div>
+<div class="container">
+  <div class="sidebar">
+    <h3>🧩 测试 Skill</h3>
+    <div style="margin-bottom:12px">
+      <button class="btn btn-success" onclick="testWithoutSkill()" style="width:100%;font-size:12px;padding:8px">💬 纯对话测试</button>
+    </div>
+    <h3>📦 已安装 Skills</h3>
+    <div id="skillSidebar"></div>
+  </div>
+  <div class="main">
+    <div class="chat-header">
+      <div class="info"><span id="currentSkill">纯对话模式</span></div>
+      <div>
+        <button class="btn btn-primary" onclick="clearChat()" style="padding:6px 14px;font-size:11px">🗑️ 清空</button>
+      </div>
+    </div>
+    <div class="msgs" id="messageArea">
+      <div class="msg assistant">你好！我是 AI 测试平台。选择左侧的 Skill 测试，或者直接跟我对话 👋</div>
+    </div>
+    <div class="settings-panel">
+      <label>🌡️ <input type="range" id="tempSlider" min="0" max="2" step="0.1" value="0.7" style="width:80px"> <span id="tempVal">0.7</span></label>
+      <label>Max Tokens: <input type="number" id="maxTokens" value="500" style="width:70px"></label>
+    </div>
+    <div class="input-area">
+      <textarea id="msgInput" placeholder="输入消息..." rows="1" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+      <button class="btn btn-primary" onclick="sendMsg()" id="sendBtn">发送</button>
+    </div>
+  </div>
+</div>
+<script>
+let currentSkillId = null;
+let msgCount = 0;
+
+async function loadSkills(){
+  try{
+    const r=await fetch('/api/skills'),d=await r.json();
+    const sb=document.getElementById('skillSidebar');
+    if(d.skills.length){
+      sb.innerHTML=d.skills.map(s=>'<div class="skill-item" onclick="selectSkill('+s.id+',\''+s.name+'\')">🧩 '+s.name+'<br><small style="color:#8098c0">'+s.category+'</small></div>').join('');
+    }else{
+      sb.innerHTML='<div style="color:#405880;font-size:12px">暂无已保存的 Skill<br>去 <a href="/wizard" style="color:#60a5fa">工坊</a> 创建一个</div>';
+    }
+  }catch(e){}
+}
+
+function selectSkill(id,name){
+  currentSkillId=id;
+  document.querySelectorAll('.skill-item').forEach(el=>el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('currentSkill').textContent='测试: '+name;
+  addMsg('assistant','已选择 Skill: '+name+'。你可以输入测试数据或问题，我会结合这个 Skill 来回复。');
+}
+
+function testWithoutSkill(){
+  currentSkillId=null;
+  document.querySelectorAll('.skill-item').forEach(el=>el.classList.remove('active'));
+  document.getElementById('currentSkill').textContent='纯对话模式';
+  addMsg('assistant','已切换到纯对话模式，直接输入消息即可。');
+}
+
+async function sendMsg(){
+  const input=document.getElementById('msgInput');
+  const text=input.value.trim();
+  if(!text) return;
+  
+  input.value='';
+  addMsg('user',text);
+  showTyping();
+  document.getElementById('sendBtn').disabled=true;
+  document.getElementById('providerBadge').textContent='⏳ 思考中...';
+  
+  try{
+    const r=await fetch('/api/llm/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        messages:[{role:'user',content:text+(currentSkillId?'\n\n[当前测试 Skill ID: '+currentSkillId+']':'')}],
+        temperature:parseFloat(document.getElementById('tempSlider').value),
+        max_tokens:parseInt(document.getElementById('maxTokens').value),
+      })
+    });
+    const d=await r.json();
+    removeTyping();
+    addMsg('assistant',d.content||'无响应',d.provider);
+    document.getElementById('providerBadge').textContent=d.provider==='openclaw'?'✅ LLM 在线':'⚡ 引擎模式';
+    document.getElementById('providerBadge').style.background=d.provider==='openclaw'?'#05969033':'#d9770a33';
+    document.getElementById('providerBadge').style.color=d.provider==='openclaw'?'#0dcea6':'#f59e0b';
+  }catch(e){
+    removeTyping();
+    addMsg('assistant','❌ 请求失败: '+e.message);
+  }
+  document.getElementById('sendBtn').disabled=false;
+}
+
+function addMsg(role,content,provider){
+  const area=document.getElementById('messageArea');
+  const div=document.createElement('div');
+  div.className='msg '+role;
+  div.innerHTML=content+(provider?'<div class="meta">via '+provider+'</div>':'');
+  area.appendChild(div);
+  area.scrollTop=area.scrollHeight;
+}
+
+function showTyping(){
+  const area=document.getElementById('messageArea');
+  const div=document.createElement('div');
+  div.className='msg assistant';
+  div.id='typingIndicator';
+  div.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
+  area.appendChild(div);
+  area.scrollTop=area.scrollHeight;
+}
+
+function removeTyping(){
+  const el=document.getElementById('typingIndicator');
+  if(el) el.remove();
+}
+
+function clearChat(){
+  document.getElementById('messageArea').innerHTML='<div class="msg assistant">对话已清空，重新开始 👋</div>';
+}
+
+document.getElementById('tempSlider').addEventListener('input',function(){
+  document.getElementById('tempVal').textContent=this.value;
+});
+
+loadSkills();
+</script>
+</body>
+</html>"""
+
+@app.get("/llm-test", response_class=HTMLResponse)
+async def llm_test_page():
+    return LLM_TEST_HTML
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")

@@ -1740,6 +1740,136 @@ async def full_health():
     
     return checks
 
+
+
+# ═══════════════════════════════════════════════
+# API: 模型管理
+# ═══════════════════════════════════════════════
+
+@app.get("/api/models")
+async def list_models():
+    """获取所有模型配置"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, name, provider, api_base, model_name, is_active FROM ai_models ORDER BY is_active DESC, id")
+            return {"models": cursor.fetchall(), "total": cursor.rowcount}
+    finally:
+        conn.close()
+
+@app.get("/api/models/active")
+async def get_active_model():
+    """获取当前激活的模型"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM ai_models WHERE is_active=1 LIMIT 1")
+            m = cursor.fetchone()
+        return {"model": m} if m else {"model": None}
+    finally:
+        conn.close()
+
+@app.post("/api/models")
+async def create_model(data: dict):
+    """添加模型"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO ai_models (name, provider, api_base, api_key, model_name, is_active) VALUES (%s,%s,%s,%s,%s,%s)",
+                (data["name"], data.get("provider","custom"), data["api_base"],
+                 data.get("api_key",""), data.get("model_name","gpt-3.5-turbo"),
+                 data.get("is_active", False))
+            )
+            conn.commit()
+        return {"id": cursor.lastrowid, "message": "模型已添加"}
+    finally:
+        conn.close()
+
+@app.put("/api/models/{mid}/activate")
+async def activate_model(mid: int):
+    """激活模型（同时取消其他）"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE ai_models SET is_active=0")
+            cursor.execute("UPDATE ai_models SET is_active=1 WHERE id=%s", (mid,))
+            conn.commit()
+        return {"message": "已切换"}
+    finally:
+        conn.close()
+
+@app.delete("/api/models/{mid}")
+async def delete_model(mid: int):
+    """删除模型"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM ai_models WHERE id=%s", (mid,))
+            conn.commit()
+        return {"message": "已删除"}
+    finally:
+        conn.close()
+
+@app.post("/api/llm/call")
+async def call_llm(data: dict):
+    """调用 LLM（可指定模型，也可用激活的默认模型）"""
+    import httpx
+    messages = data.get("messages", [{"role":"user","content":"hi"}])
+    temperature = data.get("temperature", 0.7)
+    max_tokens = data.get("max_tokens", 500)
+    model_id = data.get("model_id")
+    
+    # 获取模型配置
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            if model_id:
+                cursor.execute("SELECT * FROM ai_models WHERE id=%s", (model_id,))
+            else:
+                cursor.execute("SELECT * FROM ai_models WHERE is_active=1 LIMIT 1")
+            model = cursor.fetchone()
+    finally:
+        conn.close()
+    
+    if not model:
+        return {"status": "error", "error": "请先配置模型", "content": "请先在设置中添加 API 密钥和模型地址"}
+    
+    api_base = model["api_base"].rstrip("/")
+    api_key = model["api_key"]
+    model_name = model["model_name"]
+    
+    if not api_key:
+        mname = model["name"]
+        msg = "请先在「模型管理」中添加 API Key 和模型地址"
+        return {"status": "error", "error": f"模型【{mname}】未配置API Key", "content": msg}
+    
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{api_base}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model_name, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                return {
+                    "status": "success",
+                    "provider": model["provider"],
+                    "model_name": model_name,
+                    "content": result["choices"][0]["message"]["content"],
+                    "usage": result.get("usage", {}),
+                    "model_id": model["id"],
+                }
+            else:
+                return {
+                    "status": "error",
+                    "error": f"API 错误 ({resp.status_code})",
+                    "content": f"❌ API 返回错误: {resp.status_code}\n{resp.text[:200]}"
+                }
+    except Exception as e:
+        return {"status": "error", "content": f"❌ 连接失败: {str(e)[:100]}", "error": str(e)}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")

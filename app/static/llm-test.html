@@ -46,6 +46,10 @@
       <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:16px;align-items:center;font-size:12px;background:var(--bg-dark)">
         <label>🌡️ <input type="range" id="tempSlider" min="0" max="2" step="0.1" value="0.7" style="width:80px;vertical-align:middle"> <span id="tempVal">0.7</span></label>
         <label>Max: <input type="number" id="maxTokens" value="500" style="width:60px"></label>
+        <label>🤖 <select id="modelSelect" style="width:140px;font-size:11px">
+          <option value="">加载模型中...</option>
+        </select></label>
+        <button class="btn btn-ghost-sm" onclick="showModelManager()" style="font-size:11px">⚙️ 管理</button>
       </div>
       <div class="chat-input">
         <textarea id="msgInput" rows="1" placeholder="输入消息，Enter 发送..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
@@ -150,6 +154,11 @@ async function quickTest(type, label) {
   }
 }
 
+function getModelId() {
+  const sel = document.getElementById('modelSelect');
+  return sel ? sel.value : '';
+}
+
 async function sendMsg() {
   const inp = document.getElementById('msgInput');
   const text = inp.value.trim();
@@ -158,24 +167,70 @@ async function sendMsg() {
   addMsg('user', text);
   showTyping();
   
+  const modelId = getModelId();
+  const temperature = parseFloat(document.getElementById('tempSlider').value);
+  const maxTokens = parseInt(document.getElementById('maxTokens').value);
+  
+  // 如果有选中的 skill，先执行 skill
+  let skillTrace = '';
+  if (currentSkillId) {
+    try {
+      // 查找 skill 对应的 engine
+      const sk = await fetch('/api/skills');
+      const skd = await sk.json();
+      const skills = skd.skills || [];
+      const selected = skills.find(s => s.id == currentSkillId);
+      
+      if (selected) {
+        const execR = await fetch('/api/skills/execute', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            skill: {engine: selected.category === 'market' ? 'calculator' : 'text_summary', name: selected.name},
+            input_data: {text: text, numbers: text.match(/\d+/g) ? text.match(/\d+/g).map(Number) : [1,2,3]}
+          })
+        });
+        const execD = await execR.json();
+        if (execD.status === 'passed') {
+          skillTrace = '\n\n📊 **Skill 调用: ' + selected.name + '**\n```json\n' + JSON.stringify(execD.output, null, 2).substring(0,300) + '\n```';
+        }
+      }
+    } catch(e) {}
+  }
+  
   try {
-    const r = await fetch('/api/llm/chat', {
+    let url = '/api/llm/call';
+    let body = {
+      messages: [{role: 'user', content: text + skillTrace}],
+      temperature: temperature,
+      max_tokens: maxTokens,
+    };
+    if (modelId) body.model_id = parseInt(modelId);
+    
+    const r = await fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        messages: [{role: 'user', content: text}],
-        temperature: parseFloat(document.getElementById('tempSlider').value),
-        max_tokens: parseInt(document.getElementById('maxTokens').value),
-      })
+      body: JSON.stringify(body)
     });
     const d = await r.json();
     removeTyping();
-    addMsg('assistant', d.content || '无响应', d.provider);
-    document.getElementById('providerBadge').textContent = d.provider === 'openclaw' ? '✅ LLM 在线' : '⚡ 引擎模式';
-    document.getElementById('providerBadge').className = 'badge ' + (d.provider === 'openclaw' ? 'badge-success' : 'badge-warning');
+    
+    if (d.status === 'success') {
+      // 显示追踪面板
+      if (skillTrace) {
+        document.getElementById('execResultArea').classList.remove('hidden');
+        document.getElementById('execOutput').textContent = '🧩 Skill 已调用并传入模型';
+      }
+      addMsg('assistant', d.content || '无响应', d.provider + '/' + (d.model_name||''));
+      document.getElementById('providerBadge').textContent = '✅ ' + (d.model_name||'模型');
+      document.getElementById('providerBadge').className = 'badge badge-success';
+    } else {
+      addMsg('assistant', d.content || '❌ ' + (d.error||'请求失败'));
+      document.getElementById('providerBadge').textContent = '❌ 错误';
+      document.getElementById('providerBadge').className = 'badge badge-error';
+    }
   } catch(e) {
     removeTyping();
-    addMsg('assistant', '❌ 请求失败');
+    addMsg('assistant', '❌ 请求失败: ' + e.message);
   }
 }
 
@@ -208,6 +263,109 @@ document.getElementById('tempSlider').addEventListener('input', function() {
 });
 
 loadSkills();
+loadModels();
 </script>
+
+<!-- 模型管理弹窗 -->
+<div id="modelModal" class="hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center">
+  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:28px;width:520px;max-height:80vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;margin-bottom:20px">
+      <h3 style="font-size:18px">⚙️ 模型管理</h3>
+      <button onclick="closeModelManager()" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <div id="modelList"></div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:12px">＋ 添加模型</div>
+      <div style="display:grid;gap:10px">
+        <input id="mName" placeholder="模型名称 (如: DeepSeek V3)" style="font-size:13px">
+        <input id="mProvider" placeholder="提供商 (如: deepseek/openai/qwen)" style="font-size:13px">
+        <input id="mBase" placeholder="API 地址 (如: https://api.deepseek.com/v1)" style="font-size:13px">
+        <input id="mKey" placeholder="API Key" type="password" style="font-size:13px">
+        <input id="mModel" placeholder="模型名 (如: deepseek-chat)" style="font-size:13px">
+      </div>
+      <button class="btn btn-success" onclick="addModel()" style="margin-top:12px;width:100%;justify-content:center">➕ 添加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 加载模型列表
+async function loadModels() {
+  try {
+    const r = await fetch('/api/models');
+    const d = await r.json();
+    const sel = document.getElementById('modelSelect');
+    const models = d.models || [];
+    if (models.length) {
+      sel.innerHTML = models.map(m => 
+        '<option value="'+m.id+'"'+(m.is_active?' selected':'')+'>'+(m.is_active?'🟢 ':'')+m.name+'</option>'
+      ).join('');
+      // 切换模型时保存
+      sel.onchange = function() {
+        fetch('/api/models/'+this.value+'/activate', {method:'PUT'});
+      };
+    } else {
+      sel.innerHTML = '<option value="">— 未配置模型 —</option>';
+    }
+  } catch(e) {}
+}
+
+function showModelManager() {
+  document.getElementById('modelModal').classList.remove('hidden');
+  renderModelList();
+}
+
+function closeModelManager() {
+  document.getElementById('modelModal').classList.add('hidden');
+  loadModels();
+}
+
+async function renderModelList() {
+  try {
+    const r = await fetch('/api/models');
+    const d = await r.json();
+    const list = document.getElementById('modelList');
+    if (d.models && d.models.length) {
+      list.innerHTML = d.models.map(m => 
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'+
+        '<div><b>'+(m.is_active?'🟢 ':'⚪ ')+m.name+'</b><br><small style="color:var(--text-muted)">'+m.provider+' · '+m.model_name+'</small></div>'+
+        '<div style="display:flex;gap:6px">'+
+        (m.is_active?'':'<button class="btn btn-ghost-sm" onclick="activateM('+m.id+')">使用</button>')+
+        '<button class="btn btn-ghost-sm" onclick="deleteM('+m.id+')" style="color:var(--error)">删除</button></div></div>'
+      ).join('');
+    } else {
+      list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">暂无模型，请添加</div>';
+    }
+  } catch(e) {}
+}
+
+async function activateM(id) {
+  await fetch('/api/models/'+id+'/activate', {method:'PUT'});
+  renderModelList(); loadModels();
+}
+
+async function deleteM(id) {
+  if(!confirm('确定删除？')) return;
+  await fetch('/api/models/'+id, {method:'DELETE'});
+  renderModelList(); loadModels();
+}
+
+async function addModel() {
+  const data = {
+    name: document.getElementById('mName').value,
+    provider: document.getElementById('mProvider').value || 'custom',
+    api_base: document.getElementById('mBase').value,
+    api_key: document.getElementById('mKey').value,
+    model_name: document.getElementById('mModel').value || 'gpt-3.5-turbo',
+    is_active: true
+  };
+  if (!data.name || !data.api_base) { showToast('模型名称和API地址必填','error'); return; }
+  await fetch('/api/models', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  showToast('✅ 模型已添加');
+  // 清空
+  ['mName','mProvider','mBase','mKey','mModel'].forEach(id => document.getElementById(id).value='');
+  renderModelList(); loadModels();
+}
+
 </body>
 </html>

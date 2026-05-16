@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能商店 - AI Platform</title><link rel="stylesheet" href="/static/css/style.css">
+<style>
+.store-header{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.category-btn{padding:8px 18px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:13px;transition:var(--transition)}
+.category-btn:hover{border-color:var(--primary);color:var(--text-primary)}
+.category-btn.active{background:var(--primary);border-color:var(--primary);color:#fff}
+.store-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.skill-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;transition:var(--transition)}
+.skill-card:hover{transform:translateY(-2px);border-color:var(--primary);box-shadow:0 8px 24px rgba(26,86,214,0.15)}
+.skill-card .icon{font-size:32px;margin-bottom:8px}
+.skill-card .name{font-size:15px;font-weight:600;margin-bottom:4px}
+.skill-card .desc{color:var(--text-secondary);font-size:12px;margin-bottom:12px;line-height:1.5}
+.skill-card .meta{display:flex;gap:8px;font-size:11px;color:var(--text-muted);margin-bottom:12px;flex-wrap:wrap}
+.skill-card .actions{display:flex;gap:8px}
+.btn-sm{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;transition:var(--transition)}
+.btn-sm.primary{background:var(--primary);color:#fff}
+.btn-sm.primary:hover{background:var(--primary-hover)}
+.btn-sm.success{background:var(--accent-teal);color:#fff}
+.btn-sm.ghost{background:transparent;border:1px solid var(--border);color:var(--text-secondary)}
+.search-box{background:var(--bg-deep);border:1px solid var(--border);border-radius:8px;padding:10px 16px;color:var(--text-primary);font-size:14px;width:100%;outline:none;transition:var(--transition)}
+.search-box:focus{border-color:var(--primary)}
+</style>
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand"><h1>🧠 <span>AI</span> Platform</h1><div class="tagline">统一能力平台</div></div><div class="nav"><div class="nav-group">核心</div><a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a><a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a><a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a><div class="nav-group">商店</div><a href="/store" class="nav-item active"><span class="icon">🏪</span><span>技能商店</span></a><div class="nav-group">管理</div><a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a><a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a><a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a><div class="nav-group">工具</div><a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a><a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a><a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a></div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 技能商店</div><div class="page-title">🏪 技能商店</div></div><div><span class="badge badge-primary">15 引擎 · 即装即用</span></div></div>
+  <div class="content">
+    <input class="search-box" id="searchInput" placeholder="🔍 搜索技能..." oninput="filterSkills()">
+    <div class="store-header" id="categoryBar" style="margin-top:16px">
+      <button class="category-btn active" onclick="filterCategory('all')">🔥 全部</button>
+      <button class="category-btn" onclick="filterCategory('text')">📝 文本处理</button>
+      <button class="category-btn" onclick="filterCategory('data')">📊 数据处理</button>
+      <button class="category-btn" onclick="filterCategory('tools')">🔧 开发工具</button>
+      <button class="category-btn" onclick="filterCategory('security')">🔐 安全</button>
+      <button class="category-btn" onclick="filterCategory('custom')">✨ 自定义</button>
+    </div>
+    <div class="store-grid" id="storeGrid">加载中...</div>
+  </div>
+</div>
+<script>
+let allSkills = [];
+let currentCat = 'all';
+
+async function loadStore() {
+  try {
+    const d = await apiFetch('/preset-skills');
+    allSkills = d.skills || [];
+    // 也加载引擎信息
+    const e = await apiFetch('/engines');
+    const engines = e.engines || {};
+    
+    renderSkills(allSkills);
+  } catch(e) {}
+}
+
+function renderSkills(skills) {
+  const grid = document.getElementById('storeGrid');
+  grid.innerHTML = skills.map(s => 
+    `<div class="skill-card">
+      <div class="icon">${s.icon || '🧩'}</div>
+      <div class="name">${s.name}</div>
+      <div class="desc">${s.description}</div>
+      <div class="meta">
+        <span>⚙️ ${s.engine}</span>
+        <span>🏷️ ${s.category}</span>
+        <span>v${s.version || '1.0'}</span>
+      </div>
+      <div class="actions">
+        <button class="btn-sm success" onclick="installSkill('${s.id}','${s.name}','${s.engine}')">📦 安装</button>
+        <button class="btn-sm primary" onclick="testSkill('${s.engine}')">▶ 试玩</button>
+      </div>
+    </div>`
+  ).join('');
+}
+
+async function installSkill(id, name, engine) {
+  try {
+    await fetch('/api/skills', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, description: '从商店安装', category: 'market', code: '# Engine: '+engine, status: 'published'})
+    });
+    showToast('✅ "'+name+'" 安装成功');
+    filterSkills();
+  } catch(e) { showToast('❌ 安装失败', 'error'); }
+}
+
+async function testSkill(engine) {
+  const r = await fetch('/api/skills/execute', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({skill: {engine: engine}, input_data: {text: '测试数据', numbers: [1,2,3,4,5]}})
+  });
+  const d = await r.json();
+  if (d.status === 'passed') showToast('✅ '+engine+' 运行正常: '+JSON.stringify(d.output).slice(0,60));
+  else showToast('❌ '+d.error, 'error');
+}
+
+function filterSkills() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = allSkills.filter(s => {
+    const matchCat = currentCat === 'all' || s.category === currentCat;
+    const matchSearch = !search || s.name.toLowerCase().includes(search) || s.description.toLowerCase().includes(search);
+    return matchCat && matchSearch;
+  });
+  renderSkills(filtered);
+}
+
+function filterCategory(cat) {
+  currentCat = cat;
+  document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  filterSkills();
+}
+
+loadStore();
+</script>
+</body>
+</html>

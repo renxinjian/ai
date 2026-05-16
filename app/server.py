@@ -34,6 +34,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # 页面路由 - 指向静态 HTML
 PAGE_ROUTES = {
+    "/store": "store.html",
+    "/dashboard": "dashboard.html",
+    "/store": "store.html",
     "/": "index.html",
     "/wizard": "wizard.html",
     "/llm-test": "llm-test.html",
@@ -1172,15 +1175,92 @@ async def engine_detail(ename: str):
     return {"engine": ename, "meta": ENGINE_META.get(ename, {}), "inputs": inputs}
 
 
+
+
+# ═══════════════════════════════════════════════
+# API: 执行历史追踪
+# ═══════════════════════════════════════════════
+
 @app.post("/api/skills/execute")
-async def execute_skill_api(data: dict):
-    """执行一个完整的 .skill 定义"""
+async def execute_skill_with_history(data: dict):
+    """执行技能并记录历史"""
     skill_def = data.get("skill", {})
     input_data = data.get("input_data", {})
-    if not skill_def.get("engine"):
-        raise HTTPException(400, "缺少 engine 字段")
-    result = execute_skill(skill_def, input_data)
-    return result
+    engine_name = skill_def.get("engine", "")
+    
+    if engine_name not in ENGINES:
+        raise HTTPException(400, f"未知引擎: {engine_name}")
+    
+    import time as tmod
+    start = tmod.time()
+    try:
+        engine = ENGINES[engine_name]
+        config = skill_def.get("config", {})
+        result = engine.execute(input_data, config)
+        status = "passed"
+        output = result
+        error = None
+    except Exception as e:
+        status = "error"
+        output = None
+        error = str(e)
+    
+    duration = int((tmod.time() - start) * 1000)
+    
+    # 记录历史
+    try:
+        conn = get_db()
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO skill_exec_history (skill_name, engine, status, duration_ms, input_summary, error_msg) VALUES (%s,%s,%s,%s,%s,%s)",
+                (skill_def.get("name", engine_name), engine_name, status, duration,
+                 json.dumps(input_data)[:200], error or "")
+            )
+            conn.commit()
+        conn.close()
+    except:
+        pass
+    
+    if status == "passed":
+        return {"status": "passed", "output": output, "engine": engine_name, "duration_ms": duration}
+    else:
+        return {"status": "error", "error": error, "engine": engine_name, "duration_ms": duration}
+
+
+
+
+@app.get("/api/skills/search")
+async def search_skills(q: str = ""):
+    """搜索技能"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            if q:
+                cursor.execute("SELECT * FROM user_skills WHERE name LIKE %s OR description LIKE %s ORDER BY test_count DESC LIMIT 30", (f"%{q}%", f"%{q}%"))
+            else:
+                cursor.execute("SELECT * FROM user_skills ORDER BY test_count DESC LIMIT 30")
+            skills = cursor.fetchall()
+        return {"skills": skills, "total": len(skills)}
+    finally:
+        conn.close()
+
+@app.get("/api/history")
+async def get_history(limit: int = 20, engine: str = ""):
+    """获取执行历史"""
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            if engine:
+                cursor.execute("SELECT * FROM skill_exec_history WHERE engine=%s ORDER BY executed_at DESC LIMIT %s", (engine, limit))
+            else:
+                cursor.execute("SELECT * FROM skill_exec_history ORDER BY executed_at DESC LIMIT %s", (limit,))
+            rows = cursor.fetchall()
+        return {"history": rows, "total": len(rows)}
+    except:
+        return {"history": [], "total": 0}
+    finally:
+        conn.close()
+
 
 
 @app.get("/api/preset-skills")
@@ -1198,6 +1278,47 @@ async def get_preset_skill(sid: str):
     raise HTTPException(404, "不存在")
 
 
+
+
+# ═══════════════════════════════════════════════
+# API: AI 辅助技能生成
+# ═══════════════════════════════════════════════
+
+@app.post("/api/skills/ai-create")
+async def ai_create_skill(data: dict):
+    """从自然语言描述生成技能（使用 LLM / 模板匹配）"""
+    description = data.get("description", "")
+    if not description: raise HTTPException(400, "请描述需求")
+    
+    # 从引擎中匹配最合适的
+    from app.skill_engine import ENGINE_META
+    best_match = None
+    best_score = 0
+    
+    for name, meta in ENGINE_META.items():
+        score = 0
+        desc = f"{meta.get('name','')} {meta.get('description','')}"
+        keywords = meta.get('description','')
+        # 简单匹配
+        for word in description:
+            if word in desc or word in keywords:
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_match = {"engine": name, "name": meta.get('name',''), "icon": meta.get('icon','🧩'), "confidence": score}
+    
+    if best_match and best_score > 0:
+        return {
+            "status": "matched",
+            "skill": best_match,
+            "message": f"为您匹配到「{best_match['name']}」技能，将在 LLM 测试页运行"
+        }
+    else:
+        return {
+            "status": "suggest",
+            "message": "试试这些技能：文本摘要、数据计算器、信息提取器、问候生成器",
+            "suggestions": [{"engine": k, "name": v.get('name','')} for k,v in ENGINE_META.items()][:6]
+        }
 @app.get("/api/skills/{sid}/download")
 async def download_skill(sid: int):
     """从数据库下载 Skill 为 .skill 文件"""
@@ -1207,17 +1328,27 @@ async def download_skill(sid: int):
             cursor.execute("SELECT * FROM user_skills WHERE id=%s", (sid,))
             skill = cursor.fetchone()
         if not skill: raise HTTPException(404, "不存在")
-        # 转换为 .skill 格式
+        # 解析引擎类型和参数
+        engine = "calculator"
+        code = skill.get("code", "")
+        if "# Engine:" in code:
+            engine = code.split("# Engine:")[1].split("\n")[0].strip()
+        
+        from app.skill_engine import get_engine_input_schema
+        inputs = get_engine_input_schema(engine)
+        
         skill_file = {
             "id": str(skill["id"]),
             "name": skill["name"],
-            "description": skill["description"],
-            "engine": "calculator",
-            "version": skill["version"],
-            "category": skill["category"],
-            "config": {},
-            "inputs": [{"key": "input", "label": "输入", "type": "textarea"}],
-            "outputs": [{"key": "output", "label": "结果", "type": "json"}],
+            "description": skill.get("description", ""),
+            "engine": engine,
+            "version": skill.get("version", "1.0.0"),
+            "category": skill.get("category", "通用"),
+            "author": "AI Platform",
+            "icon": "🧩",
+            "inputs": inputs,
+            "outputs": [{"key": "result", "label": "结果", "type": "json"}],
+            "created_at": str(skill.get("created_at", "")),
         }
         return JSONResponse(content=skill_file, headers={"Content-Disposition": f"attachment; filename={skill['name']}.skill"})
     finally:
@@ -1512,6 +1643,102 @@ loadSkills();
 @app.get("/llm-test", response_class=HTMLResponse)
 async def llm_test_page():
     return LLM_TEST_HTML
+
+
+
+# ═══════════════════════════════════════════════
+# 性能 & 安全中间件
+# ═══════════════════════════════════════════════
+
+from fastapi import Request
+from datetime import datetime, timedelta
+import asyncio
+
+# 简单内存缓存
+class SimpleCache:
+    def __init__(self, ttl=60):
+        self._cache = {}
+        self._ttl = ttl
+    
+    def get(self, key):
+        if key in self._cache:
+            val, ts = self._cache[key]
+            if datetime.now() - ts < timedelta(seconds=self._ttl):
+                return val
+            del self._cache[key]
+        return None
+    
+    def set(self, key, val):
+        self._cache[key] = (val, datetime.now())
+    
+    def clear(self):
+        self._cache.clear()
+
+cache = SimpleCache(ttl=30)
+
+# 速率限制
+rate_limit_store = {}
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    # 只对 API 限流
+    if request.url.path.startswith("/api/"):
+        client_ip = request.client.host if request.client else "unknown"
+        now = datetime.now()
+        key = f"{client_ip}:{request.url.path}"
+        
+        if key in rate_limit_store:
+            count, reset_at = rate_limit_store[key]
+            if now < reset_at:
+                if count > 30:  # 30次/分钟
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({"error": "请求过于频繁"}, status_code=429)
+                rate_limit_store[key] = (count + 1, reset_at)
+            else:
+                rate_limit_store[key] = (1, now + timedelta(minutes=1))
+        else:
+            rate_limit_store[key] = (1, now + timedelta(minutes=1))
+        
+        # 清理过期条目
+        if len(rate_limit_store) > 1000:
+            rate_limit_store.clear()
+    
+    response = await call_next(request)
+    # 添加安全头
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+@app.get("/api/cache/clear")
+async def clear_cache():
+    """清除缓存"""
+    cache.clear()
+    return {"message": "缓存已清除"}
+
+@app.get("/api/health")
+async def full_health():
+    """完整健康检查"""
+    checks = {"status": "ok", "timestamp": datetime.now().isoformat(), "services": {}}
+    
+    # MySQL
+    try:
+        conn = get_db()
+        conn.ping()
+        conn.close()
+        checks["services"]["mysql"] = "connected"
+    except:
+        checks["services"]["mysql"] = "disconnected"
+        checks["status"] = "degraded"
+    
+    # 引擎
+    checks["services"]["engines"] = f"{len(ENGINES)} engines loaded"
+    
+    # 系统
+    import os
+    load = os.getloadavg() if hasattr(os, 'getloadavg') else [0,0,0]
+    checks["system"] = {"load": load[0], "uptime": os.popen('uptime -p').read().strip() if os.path.exists('/proc/uptime') else "N/A"}
+    
+    return checks
 
 if __name__ == "__main__":
     import uvicorn

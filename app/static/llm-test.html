@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="/static/css/style.css">
 <style>
 .chat-layout{display:flex;gap:0;height:calc(100vh - 120px);margin:-28px -32px}
-.chat-sidebar{width:240px;background:var(--bg-sidebar);border-right:1px solid var(--border);padding:16px;overflow-y:auto;flex-shrink:0}
+.chat-sidebar{width:280px;background:var(--bg-sidebar);border-right:1px solid var(--border);padding:16px;overflow-y:auto;flex-shrink:0}.skill-item{padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:2px;transition:var(--transition)}.skill-item:hover{background:var(--bg-card)}.skill-item.active{background:rgba(26,86,214,0.2)}
 .chat-main{flex:1;display:flex;flex-direction:column}
 .chat-msgs{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
 </style>
@@ -20,11 +20,13 @@
     <div class="nav-group">核心</div>
     <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
     <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
-    <a href="/llm-test" class="nav-item active" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <a href="/llm-test" class="nav-item active" class="nav-item active" class="nav-item active" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
     <div class="nav-group">管理</div>
+    <a href="/store" class="nav-item"><span class="icon">🏪</span><span>技能商店</span></a>
     <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
     <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
     <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">分析</div><a href="/dashboard" class="nav-item"><span class="icon">📊</span><span>数据看板</span></a>
     <div class="nav-group">工具</div>
     <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
     <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
@@ -51,24 +53,134 @@
     </div>
   </div>
 </div>
+
 <script>
-let currentSkillId=null;
-async function loadSkills(){try{
-  const d=await apiFetch('/skills');
-  document.getElementById('skillList').innerHTML=d.skills.length?d.skills.map(s=>'<div class="skill-item" onclick="selectSkill('+s.id+',\''+s.name+'\')">🧩 '+s.name+'<br><small style="color:var(--text-muted)">'+s.category+'</small></div>').join(''):'<div style="color:var(--text-muted);font-size:12px">暂无</div>';
-}catch(e){}}
-function selectSkill(id,name){currentSkillId=id;document.querySelectorAll('.skill-item').forEach(e=>e.classList.remove('active'));event.currentTarget.classList.add('active');addMsg('assistant','已选: '+name+'，输入测试数据');}
-function testNoSkill(){currentSkillId=null;document.querySelectorAll('.skill-item').forEach(e=>e.classList.remove('active'));addMsg('assistant','纯对话模式');}
-async function sendMsg(){const inp=document.getElementById('msgInput'),t=inp.value.trim();if(!t)return;inp.value='';addMsg('user',t);showTyping()
-const r=await fetch('/api/llm/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:t+(currentSkillId?'\n\n[测试 Skill: '+currentSkillId+']':'')}],temperature:parseFloat(document.getElementById('tempSlider').value),max_tokens:parseInt(document.getElementById('maxTokens').value)})});
-const d=await r.json();removeTyping();addMsg('assistant',d.content||'无响应',d.provider);
-document.getElementById('providerBadge').textContent=d.provider==='openclaw'?'✅ LLM 在线':'⚡ 引擎模式';
-document.getElementById('providerBadge').className='badge '+(d.provider==='openclaw'?'badge-success':'badge-warning');
+let skills = [];
+let currentSkillId = null;
+
+async function loadSkills() {
+  try {
+    const d = await apiFetch('/skills');
+    skills = d.skills || [];
+    const list = document.getElementById('skillList');
+    if (skills.length) {
+      list.innerHTML = skills.map(s => 
+        `<div class="skill-item" onclick="selectSkill(${s.id},'${s.name}','${(s.description||'').replace(/'/g,"\'")}')">
+          🧩 ${s.name}
+          <br><small style="color:var(--text-muted)">${s.category} · ${s.test_count}次</small>
+        </div>`
+      ).join('');
+    }
+  } catch(e) {}
 }
-function addMsg(r,c,p){const a=document.getElementById('msgArea'),d=document.createElement('div');d.className='msg '+r;d.innerHTML=c+(p?'<div class="meta">via '+p+'</div>':'');a.appendChild(d);a.scrollTop=a.scrollHeight}
-function showTyping(){const a=document.getElementById('msgArea'),d=document.createElement('div');d.className='msg assistant';d.id='typing';d.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';a.appendChild(d);a.scrollTop=a.scrollHeight}
-function removeTyping(){const e=document.getElementById('typing');if(e)e.remove()}
-document.getElementById('tempSlider').addEventListener('input',function(){document.getElementById('tempVal').textContent=this.value});
+
+function selectSkill(id, name, desc) {
+  currentSkillId = id;
+  document.querySelectorAll('.skill-item').forEach(e => e.classList.remove('active'));
+  try { event.currentTarget.classList.add('active'); } catch(e) {}
+  document.getElementById('execResultArea').classList.add('hidden');
+  addMsg('assistant', `已选择: **${name}**\n${desc}\n\n输入测试数据或直接点下方的快速测试按钮`);
+}
+
+async function quickTest(type, label) {
+  let skill, inputData;
+  
+  // 根据类型查找对应的引擎和生成测试数据
+  const engineMap = {
+    '摘要': {engine: 'text_summary', data: {text: '人工智能正在改变世界。深度学习让计算机能够识别图像。大语言模型可以理解和生成文本。'}},
+    '计算': {engine: 'calculator', data: {numbers: [23, 45, 67, 12, 89, 34]}},
+    '问候': {engine: 'greeting', data: {name: '朋友', style: 'warm', language: 'zh'}},
+    '翻译': {engine: 'translator', data: {text: '你好世界', direction: 'zh_to_en'}},
+    '密码': {engine: 'password_gen', data: {length: 16, count: 3}},
+  };
+  
+  const cmd = engineMap[label];
+  if (!cmd) return;
+  
+  // 执行引擎
+  addMsg('user', `▶ 测试: ${label}`);
+  showTyping();
+  
+  try {
+    const r = await fetch('/api/skills/execute', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({skill: {engine: cmd.engine}, input_data: cmd.data})
+    });
+    const result = await r.json();
+    removeTyping();
+    
+    document.getElementById('execResultArea').classList.remove('hidden');
+    if (result.status === 'passed') {
+      document.getElementById('execOutput').textContent = JSON.stringify(result.output, null, 2);
+      addMsg('assistant', `✅ **${label}** 执行成功 (${result.engine})`);
+    } else {
+      document.getElementById('execOutput').textContent = '❌ ' + result.error;
+      addMsg('assistant', `❌ **${label}** 执行失败`);
+    }
+  } catch(e) {
+    removeTyping();
+    addMsg('assistant', '❌ 请求失败: ' + e.message);
+  }
+}
+
+async function sendMsg() {
+  const inp = document.getElementById('msgInput');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  addMsg('user', text);
+  showTyping();
+  
+  try {
+    const r = await fetch('/api/llm/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        messages: [{role: 'user', content: text}],
+        temperature: parseFloat(document.getElementById('tempSlider').value),
+        max_tokens: parseInt(document.getElementById('maxTokens').value),
+      })
+    });
+    const d = await r.json();
+    removeTyping();
+    addMsg('assistant', d.content || '无响应', d.provider);
+    document.getElementById('providerBadge').textContent = d.provider === 'openclaw' ? '✅ LLM 在线' : '⚡ 引擎模式';
+    document.getElementById('providerBadge').className = 'badge ' + (d.provider === 'openclaw' ? 'badge-success' : 'badge-warning');
+  } catch(e) {
+    removeTyping();
+    addMsg('assistant', '❌ 请求失败');
+  }
+}
+
+function addMsg(role, content, provider) {
+  const a = document.getElementById('msgArea');
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  d.innerHTML = content.replace(/\n/g, '<br>') + (provider ? '<div class="meta">via ' + provider + '</div>' : '');
+  a.appendChild(d);
+  a.scrollTop = a.scrollHeight;
+}
+
+function showTyping() {
+  const a = document.getElementById('msgArea');
+  const d = document.createElement('div');
+  d.className = 'msg assistant';
+  d.id = 'typing';
+  d.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+  a.appendChild(d);
+  a.scrollTop = a.scrollHeight;
+}
+
+function removeTyping() {
+  const e = document.getElementById('typing');
+  if (e) e.remove();
+}
+
+document.getElementById('tempSlider').addEventListener('input', function() {
+  document.getElementById('tempVal').textContent = this.value;
+});
+
 loadSkills();
 </script>
 </body>

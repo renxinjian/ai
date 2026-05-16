@@ -64,6 +64,66 @@ def _create_static_route(route_path, file_name):
         with open(fp) as f:
             return f.read()
 
+
+
+# ═══════════════════════════════════════════════
+# LLM 测试页 — 服务端渲染（SSR）
+# ═══════════════════════════════════════════════
+
+@app.get("/llm-test", response_class=HTMLResponse, include_in_schema=False)
+async def llm_test_ssr():
+    """LLM 测试页 — 服务端注入技能和模型数据"""
+    import os, json
+    
+    # 读取 HTML 模板
+    html_path = os.path.join(STATIC_DIR, "llm-test.html")
+    if not os.path.exists(html_path):
+        return "Page not found"
+    
+    with open(html_path) as f:
+        html = f.read()
+    
+    # 注入技能数据
+    try:
+        conn = get_db()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, name, description, category, test_count FROM user_skills ORDER BY test_count DESC LIMIT 30")
+            skills = cursor.fetchall()
+        conn.close()
+    except:
+        skills = []
+    
+    skills_json = json.dumps(skills, ensure_ascii=False, default=str)
+    # 替换占位符
+    html = html.replace(
+        '<div id="skillList"></div>',
+        f'<div id="skillList"></div>\n<script>window.__SKILLS__ = {skills_json};</script>'
+    )
+    
+    # 注入模型数据
+    try:
+        conn = get_db()
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT id, name, provider, api_base, model_name, is_active FROM ai_models ORDER BY is_active DESC")
+            models = cursor.fetchall()
+        conn.close()
+    except:
+        models = []
+    
+    models_json = json.dumps(models, ensure_ascii=False, default=str)
+    html = html.replace(
+        '</head>',
+        f'<script>window.__SKILLS__ = {skills_json}; window.__MODELS__ = {models_json};</script>\n</head>'
+    )
+    
+    from fastapi.responses import HTMLResponse as HTMLResp
+    from fastapi.responses import Response
+    return Response(content=html, media_type="text/html", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })
+
 for route, file in PAGE_ROUTES.items():
     _create_static_route(route, file)
 
@@ -1055,7 +1115,13 @@ function renderParamForm(){
     
     if(p.placeholder) html += '<div class="help">例: '+p.placeholder+'</div>';
     html += '</div>';
-    return html;
+    from fastapi.responses import HTMLResponse as HTMLResp
+    from fastapi.responses import Response
+    return Response(content=html, media_type="text/html", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    });
   }).join('');
 }
 

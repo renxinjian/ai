@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大模型测试 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<style>
+.chat-layout{display:flex;gap:0;height:calc(100vh - 120px);margin:-28px -32px}
+.chat-sidebar{width:240px;background:var(--bg-sidebar);border-right:1px solid var(--border);padding:16px;overflow-y:auto;flex-shrink:0}
+.chat-main{flex:1;display:flex;flex-direction:column}
+.chat-msgs{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+</style>
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item active" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 大模型测试</div><div class="page-title">🤖 大模型测试</div></div><div><span id="providerBadge" class="badge badge-warning">引擎模式</span></div></div>
+  <div class="chat-layout">
+    <div class="chat-sidebar">
+      <button class="btn btn-ghost-sm" onclick="testNoSkill()" style="width:100%;margin-bottom:12px">💬 纯对话</button>
+      <div style="font-size:10px;color:var(--text-muted);margin-bottom:8px">📦 已安装 Skills</div>
+      <div id="skillList"></div>
+    </div>
+    <div class="chat-main">
+      <div class="chat-msgs" id="msgArea"><div class="msg assistant">你好！选择左侧 Skill 测试或直接对话 👋</div></div>
+      <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:16px;align-items:center;font-size:12px;background:var(--bg-dark)">
+        <label>🌡️ <input type="range" id="tempSlider" min="0" max="2" step="0.1" value="0.7" style="width:80px;vertical-align:middle"> <span id="tempVal">0.7</span></label>
+        <label>Max: <input type="number" id="maxTokens" value="500" style="width:60px"></label>
+      </div>
+      <div class="chat-input">
+        <textarea id="msgInput" rows="1" placeholder="输入消息，Enter 发送..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg()}"></textarea>
+        <button class="btn btn-primary" onclick="sendMsg()">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let currentSkillId=null;
+async function loadSkills(){try{
+  const d=await apiFetch('/skills');
+  document.getElementById('skillList').innerHTML=d.skills.length?d.skills.map(s=>'<div class="skill-item" onclick="selectSkill('+s.id+',\''+s.name+'\')">🧩 '+s.name+'<br><small style="color:var(--text-muted)">'+s.category+'</small></div>').join(''):'<div style="color:var(--text-muted);font-size:12px">暂无</div>';
+}catch(e){}}
+function selectSkill(id,name){currentSkillId=id;document.querySelectorAll('.skill-item').forEach(e=>e.classList.remove('active'));event.currentTarget.classList.add('active');addMsg('assistant','已选: '+name+'，输入测试数据');}
+function testNoSkill(){currentSkillId=null;document.querySelectorAll('.skill-item').forEach(e=>e.classList.remove('active'));addMsg('assistant','纯对话模式');}
+async function sendMsg(){const inp=document.getElementById('msgInput'),t=inp.value.trim();if(!t)return;inp.value='';addMsg('user',t);showTyping()
+const r=await fetch('/api/llm/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:[{role:'user',content:t+(currentSkillId?'\n\n[测试 Skill: '+currentSkillId+']':'')}],temperature:parseFloat(document.getElementById('tempSlider').value),max_tokens:parseInt(document.getElementById('maxTokens').value)})});
+const d=await r.json();removeTyping();addMsg('assistant',d.content||'无响应',d.provider);
+document.getElementById('providerBadge').textContent=d.provider==='openclaw'?'✅ LLM 在线':'⚡ 引擎模式';
+document.getElementById('providerBadge').className='badge '+(d.provider==='openclaw'?'badge-success':'badge-warning');
+}
+function addMsg(r,c,p){const a=document.getElementById('msgArea'),d=document.createElement('div');d.className='msg '+r;d.innerHTML=c+(p?'<div class="meta">via '+p+'</div>':'');a.appendChild(d);a.scrollTop=a.scrollHeight}
+function showTyping(){const a=document.getElementById('msgArea'),d=document.createElement('div');d.className='msg assistant';d.id='typing';d.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';a.appendChild(d);a.scrollTop=a.scrollHeight}
+function removeTyping(){const e=document.getElementById('typing');if(e)e.remove()}
+document.getElementById('tempSlider').addEventListener('input',function(){document.getElementById('tempVal').textContent=this.value});
+loadSkills();
+</script>
+</body>
+</html>

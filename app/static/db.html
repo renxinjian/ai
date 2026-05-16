@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据库 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item active" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 数据库</div><div class="page-title">🗄️ 数据库管理</div></div></div>
+  <div class="content">
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title" style="margin-bottom:12px">📋 表结构</div>
+      <table><thead><tr><th>表名</th><th>引擎</th><th>行数</th><th>大小</th></tr></thead><tbody id="tableBody"><tr><td colspan="4" style="color:var(--text-muted)">加载中...</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px">🔍 SQL 查询</div>
+      <textarea id="sqlInput" rows="3" style="font-family:monospace">SELECT * FROM ai_skills ORDER BY category</textarea>
+      <div style="margin-top:12px"><button class="btn btn-primary" onclick="runQuery()">▶ 执行</button></div>
+      <div class="result-box" id="queryResult" style="margin-top:12px">点击执行查看结果</div>
+    </div>
+  </div>
+</div>
+<script>
+async function loadTables(){try{const d=await apiFetch('/db/tables');document.getElementById('tableBody').innerHTML=d.tables.map(t=>'<tr><td>'+t.TABLE_NAME+'</td><td>'+t.ENGINE+'</td><td>'+t.TABLE_ROWS+'</td><td>'+t.SIZE_MB+' MB</td></tr>').join('')}catch(e){}}
+async function runQuery(){try{const d=await apiFetch('/db/query?sql='+encodeURIComponent(document.getElementById('sqlInput').value));document.getElementById('queryResult').textContent=JSON.stringify(d.rows||d,null,2).slice(0,5000)}catch(e){}}
+loadTables();
+</script>
+</body>
+</html>

@@ -22,6 +22,48 @@ ROOT = Path(__file__).resolve().parent.parent
 
 app = FastAPI(title="AI Platform", version="3.0.0",
               description="AI 能力平台 - MCP / Skill IDE / 数据库管理 / 沙箱测试")
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+# 挂载静态文件
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# 页面路由 - 指向静态 HTML
+PAGE_ROUTES = {
+    "/": "index.html",
+    "/wizard": "wizard.html",
+    "/llm-test": "llm-test.html",
+    "/market": "market.html",
+    "/playground": "playground.html",
+    "/skills": "skills.html",
+    "/db": "db.html",
+}
+
+@app.get("/editor", response_class=HTMLResponse)  
+async def editor_page():
+    path = os.path.join(STATIC_DIR, "editor.html")
+    if os.path.exists(path):
+        with open(path) as f:
+            return f.read()
+    # 如果 editor.html 不存在，使用原有逻辑或返回简单页面
+    return """<!DOCTYPE html><html><head><title>编辑器</title><link rel="stylesheet" href="/static/css/style.css"></head><body><nav class="sidebar"><div class="brand"><h1>🧠 <span>AI</span> Platform</h1><div class="tagline">统一能力平台</div></div><div class="nav"><div class="nav-group">核心</div><a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a><a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a><a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a><div class="nav-group">管理</div><a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a><a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a><a href="/editor" class="nav-item active"><span class="icon">✏️</span><span>代码编辑器</span></a><div class="nav-group">工具</div><a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a><a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a></div></nav><div class="main"><div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 编辑器</div><div class="page-title">✏️ 代码编辑器</div></div><div><span class="badge badge-primary">高级模式</span></div></div><div class="content"><div class="card"><div class="card-title">编辑器正在重构中...</div><p style="color:var(--text-secondary);margin-top:8px">请使用 /wizard 零代码工坊创建技能</p></div></div></div></body></html>"""
+
+def _create_static_route(route_path, file_name):
+    """创建静态页面路由（避免闭包陷阱）"""
+    fp = os.path.join(STATIC_DIR, file_name)
+    if not os.path.exists(fp): return
+    @app.get(route_path, response_class=HTMLResponse, include_in_schema=False)
+    async def _static_page():
+        with open(fp) as f:
+            return f.read()
+
+for route, file in PAGE_ROUTES.items():
+    _create_static_route(route, file)
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 DB_CONFIG = {

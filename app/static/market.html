@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market 安装 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<style>.drop-zone{border:2px dashed var(--border);border-radius:16px;padding:60px;text-align:center;cursor:pointer;transition:var(--transition)}.drop-zone:hover{border-color:var(--primary);background:rgba(26,86,214,0.04)}.drop-zone .big{font-size:48px;margin-bottom:8px}</style>
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item active" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / Market 安装</div><div class="page-title">📦 Market 安装</div></div><div><span class="badge badge-success">即装即用</span></div></div>
+  <div class="content">
+    <div class="drop-zone" id="dropZone" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+      <div class="big">📂</div>
+      <p><b>拖放 .skill 文件到此处</b></p>
+      <p style="color:var(--text-muted);font-size:13px;margin-top:4px">或粘贴 .skill JSON 内容</p>
+    </div>
+    <div class="card" style="margin-top:20px">
+      <div class="card-title" style="margin-bottom:12px">📋 粘贴 JSON</div>
+      <textarea id="jsonInput" rows="4" placeholder='{"id":"my_skill","name":"我的技能","engine":"text_summary",...}'></textarea>
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button class="btn btn-success" onclick="installJson()">📦 安装</button>
+      </div>
+    </div>
+    <div id="previewArea" class="card hidden" style="margin-top:20px">
+      <div class="card-title" style="margin-bottom:12px">🔍 预览</div>
+      <div id="previewContent"></div>
+      <div style="margin-top:12px"><button class="btn btn-primary" onclick="confirmInstall()">✅ 确认安装</button><button class="btn btn-ghost" onclick="clearPreview()" style="margin-left:8px">取消</button></div>
+    </div>
+    <div class="card" style="margin-top:20px">
+      <div class="card-header"><div class="card-title">📦 已安装</div></div>
+      <table><thead><tr><th>名称</th><th>分类</th><th>状态</th><th>测试</th></tr></thead><tbody id="installedBody"></tbody></table>
+    </div>
+  </div>
+</div>
+<script>
+let pendingSkill=null;
+function handleDrop(e){e.preventDefault();const f=e.dataTransfer.files[0];if(!f||!f.name.endsWith('.skill'))return showToast('请拖入 .skill 文件','error');const r=new FileReader();r.onload=function(ev){try{pendingSkill=JSON.parse(ev.target.result);showPreview()}catch(e){showToast('格式错误','error')}};r.readAsText(f)}
+function installJson(){try{pendingSkill=JSON.parse(document.getElementById('jsonInput').value);showPreview()}catch(e){showToast('JSON 格式错误','error')}}
+function showPreview(){document.getElementById('previewArea').classList.remove('hidden');document.getElementById('previewContent').innerHTML='<div>🧩 <b>'+(pendingSkill.name||'?')+'</b> · '+(pendingSkill.engine||'?')+' · v'+(pendingSkill.version||'1.0')+'</div><div class="result-box" style="margin-top:8px">'+JSON.stringify(pendingSkill,null,2)+'</div>'}
+async function confirmInstall(){if(!pendingSkill)return;await fetch('/api/skills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:pendingSkill.name,description:pendingSkill.description||'',category:pendingSkill.category||'market',code:'# .skill: '+pendingSkill.engine,status:'published'})});showToast('✅ 安装成功');clearPreview();loadInstalled()}
+function clearPreview(){document.getElementById('previewArea').classList.add('hidden');pendingSkill=null}
+async function loadInstalled(){try{const d=await apiFetch('/skills');const t=document.getElementById('installedBody');t.innerHTML=d.skills.length?d.skills.map(s=>'<tr><td>'+s.name+'</td><td>'+s.category+'</td><td><span class="badge badge-success">'+s.status+'</span></td><td>'+s.test_count+'次</td></tr>').join(''):'<tr><td colspan="4" style="color:var(--text-muted);text-align:center">暂无</td></tr>'}catch(e){}}
+loadInstalled();
+</script>
+</body>
+</html>

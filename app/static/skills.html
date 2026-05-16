@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能列表 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<style>.skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}</style>
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item active" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 技能列表</div><div class="page-title">📋 技能列表</div></div><div><a href="/wizard" class="btn btn-primary">＋ 新建</a></div></div>
+  <div class="content"><div class="skill-grid" id="skillGrid"><div style="color:var(--text-muted)">加载中...</div></div></div>
+</div>
+<script>
+async function load(){try{
+  const d=await apiFetch('/skills');
+  document.getElementById('skillGrid').innerHTML=d.skills.map(s=>
+    '<div class="card" style="cursor:pointer" onclick="location.href=\'/editor?id='+s.id+'\'">'+
+    '<div style="font-size:24px;margin-bottom:6px">🧩</div>'+
+    '<div style="font-weight:600;font-size:15px;margin-bottom:4px">'+s.name+'</div>'+
+    '<div style="color:var(--text-secondary);font-size:12px;margin-bottom:8px">'+(s.description||'无描述')+'</div>'+
+    '<div style="display:flex;gap:8px;font-size:11px;color:var(--text-muted)">'+
+    '<span>🏷️ '+s.category+'</span>'+
+    '<span class="badge badge-success">'+s.status+'</span>'+
+    '<span>🧪 '+s.test_count+'次</span>'+
+    '</div></div>').join('');
+}catch(e){}}
+load();
+</script>
+</body>
+</html>

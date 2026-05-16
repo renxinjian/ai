@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沙箱测试 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item active" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 沙箱测试</div><div class="page-title">🧪 沙箱测试</div></div><div><span class="badge badge-primary">安全沙箱</span></div></div>
+  <div class="content">
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title" style="margin-bottom:8px">📝 输入代码</div>
+      <textarea id="codeInput" rows="8" style="font-family:monospace">def main(input_data):
+    name = input_data.get("name", "World")
+    return {"message": f"Hello, {name}!"}</textarea>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:8px">⚙️ 输入数据 (JSON)</div>
+        <textarea id="inputJson" rows="4" style="font-family:monospace">{"name": "AI Platform"}</textarea>
+        <div style="margin-top:12px"><button class="btn btn-success" onclick="runTest()">▶ 运行</button></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">📊 结果</div><span id="resultStatus">就绪</span></div>
+        <div class="result-box" id="resultOutput" style="min-height:120px">点击「运行」查看结果</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+async function runTest(){try{
+  const inputData=JSON.parse(document.getElementById('inputJson').value);
+  const r=await fetch('/api/test-run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.getElementById('codeInput').value,input_data:inputData})});
+  const d=await r.json();
+  document.getElementById('resultStatus').textContent=d.status==='passed'?'✅ 通过':'❌ 失败';
+  let o='⏱ '+d.duration_ms+'ms\\n';
+  if(d.output!==undefined)o+='📦 返回:\\n'+JSON.stringify(d.output,null,2);
+  if(d.error)o+='\\n❌ '+d.error+(d.traceback?'\\n'+d.traceback:'');
+  document.getElementById('resultOutput').textContent=o;
+}catch(e){}}
+</script>
+</body>
+</html>

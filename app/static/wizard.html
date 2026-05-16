@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>技能工坊 - AI Platform</title>
+<link rel="stylesheet" href="/static/css/style.css">
+<style>
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.tpl-card{background:var(--bg-deep);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:var(--transition)}
+.tpl-card:hover{border-color:var(--primary);transform:translateY(-2px)}
+.tpl-card.selected{border-color:var(--primary);background:rgba(26,86,214,0.08)}
+.tpl-card .icon{font-size:28px;margin-bottom:4px}
+.tpl-card .name{font-size:14px;font-weight:600;margin-bottom:4px}
+.tpl-card .desc{font-size:11px;color:var(--text-secondary)}
+</style>
+</head>
+<body>
+<nav class="sidebar"><nav class="sidebar"><div class="brand">
+    <h1>🧠 <span>AI</span> Platform</h1>
+    <div class="tagline">统一能力平台</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group">核心</div>
+    <a href="/" class="nav-item"><span class="icon">🏠</span><span>仪表盘</span></a>
+    <a href="/wizard" class="nav-item active" class="nav-item"><span class="icon">🧩</span><span>技能工坊</span></a>
+    <a href="/llm-test" class="nav-item"><span class="icon">🤖</span><span>大模型测试</span></a>
+    <div class="nav-group">管理</div>
+    <a href="/market" class="nav-item"><span class="icon">📦</span><span>Market 安装</span></a>
+    <a href="/skills" class="nav-item"><span class="icon">📋</span><span>技能列表</span></a>
+    <a href="/editor" class="nav-item"><span class="icon">✏️</span><span>代码编辑器</span></a>
+    <div class="nav-group">工具</div>
+    <a href="/playground" class="nav-item"><span class="icon">🧪</span><span>沙箱测试</span></a>
+    <a href="/db" class="nav-item"><span class="icon">🗄️</span><span>数据库</span></a>
+    <a href="/docs" class="nav-item"><span class="icon">📡</span><span>API 文档</span></a>
+  </div></nav></nav>
+<div class="main">
+  <div class="topbar"><div><div class="breadcrumb"><a href="/">首页</a> / 技能工坊</div><div class="page-title">🧩 技能工坊</div></div><div><span class="badge badge-primary">零代码 · 三步创建</span></div></div>
+  <div class="content">
+    <div class="steps"><div class="step active" id="s1">① 选技能</div><div class="step" id="s2">② 填参数</div><div class="step" id="s3">③ 看结果</div></div>
+    <div id="step1" class="card"><div class="card-title" style="margin-bottom:16px">🎯 选择一个技能</div><div class="tpl-grid" id="skillGrid"></div></div>
+    <div id="step2" class="card hidden"><div class="card-title" style="margin-bottom:16px">⚙️ 配置参数</div><div id="paramForm"></div><div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-success" onclick="runSkill()">▶ 立即执行</button><button class="btn btn-ghost" onclick="showStep(1)">← 换一个</button></div></div>
+    <div id="step3" class="card hidden"><div class="card-title" style="margin-bottom:16px">📊 执行结果</div><div class="result-box" id="resultBox"></div><div style="margin-top:16px;display:flex;gap:10px"><button class="btn btn-primary" onclick="showStep(2)">← 重新配置</button><button class="btn btn-ghost" onclick="showStep(1)">🔄 换一个</button></div></div>
+  </div>
+</div>
+<script>
+let currentSkill=null;
+async function loadSkills(){try{
+  const d=await apiFetch('/preset-skills');
+  document.getElementById('skillGrid').innerHTML=d.skills.map(s=>'<div class="tpl-card" onclick="selectSkill(\''+s.id+'\')"><div class="icon">'+(s.icon||'🧩')+'</div><div class="name">'+s.name+'</div><div class="desc">'+s.description+'</div></div>').join('');
+}catch(e){}}
+async function selectSkill(id){try{
+  const d=await apiFetch('/templates/'+id);
+  currentSkill=d.template||d;
+  renderParams();
+  showStep(2);
+}catch(e){}}
+async function renderParams(){
+  if(!currentSkill||!currentSkill.inputs){document.getElementById('paramForm').innerHTML='<div style="color:var(--text-muted)">无需参数</div>';return}
+  document.getElementById('paramForm').innerHTML=currentSkill.inputs.map(p=>{
+    const id='param_'+p.key;
+    let html='<div class="param-group" style="margin-bottom:14px"><label>'+p.label+'</label>';
+    if(p.type==='textarea')html+='<textarea id="'+id+'" placeholder="'+(p.placeholder||'')+'">'+(p.default||'')+'</textarea>';
+    else if(p.type==='select'){html+='<select id="'+id+'">';(p.options||[]).forEach(o=>{html+='<option value="'+o.value+'"'+(o.value===p.default?' selected':'')+'>'+o.label+'</option>'});html+='</select>'}
+    else if(p.type==='multiselect'){html+='<div class="checkbox-group">';(p.options||[]).forEach(o=>{const ch=(p.default||[]).includes(o.value);html+='<label><input type="checkbox" value="'+o.value+'"'+(ch?'checked':'')+'>'+o.label+'</label>'});html+='</div>'}
+    else html+='<input type="text" id="'+id+'" value="'+(p.default||'')+'" placeholder="'+(p.placeholder||'')+'">';
+    html+='</div>';return html;
+  }).join('');
+}
+async function runSkill(){
+  const inputData={};
+  if(currentSkill.inputs)currentSkill.inputs.forEach(p=>{
+    const el=document.getElementById('param_'+p.key);
+    if(!el)return;
+    if(p.type==='multiselect')inputData[p.key]=Array.from(el.querySelectorAll('input:checked')).map(cb=>cb.value);
+    else inputData[p.key]=el.value;
+  });
+  const r=await fetch('/api/skills/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skill:currentSkill,input_data:inputData})});
+  const result=await r.json();
+  showStep(3);
+  const box=document.getElementById('resultBox');
+  if(result.status==='passed'){let o='✅ 执行成功 ('+result.engine+')\\n\\n';if(result.output)o+=JSON.stringify(result.output,null,2);box.textContent=o}
+  else box.textContent='❌ 失败\\n'+result.error;
+}
+function showStep(n){['step1','step2','step3'].forEach((id,i)=>{document.getElementById(id).classList.toggle('hidden',i+1!==n);document.getElementById('s'+(i+1)).classList.toggle('active',i+1===n);document.getElementById('s'+(i+1)).classList.toggle('done',i+1<n)})}
+loadSkills();
+</script>
+</body>
+</html>

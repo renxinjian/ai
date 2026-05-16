@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Optional
-from app.skill_engine import execute_skill, get_engine_input_schema, ENGINES, ENGINE_META, PRESET_SKILLS, SKILL_SCHEMA
+from app.skill_engine import execute_skill, get_engine_input_schema, ENGINES, ENGINE_META, PRESET_SKILLS
 from app.skill_templates import match_templates, generate_skill_from_description, get_template_list, get_template_detail
 
 from fastapi import FastAPI, HTTPException, Query, Request

@@ -1,15 +1,74 @@
 """
-Skill Engine - AI Platform 声明式技能执行引擎
+Skill Engine — 声明式 Skill 执行引擎
+.skill 文件 = JSON/YAML 配置，不是 Python 代码
 """
 
 import json
 import re
 import statistics
-import hashlib
-import random
-import string
+from typing import Any, Optional
 from datetime import datetime
 
+# ═══════════════════════════════════════════════
+# .skill 文件格式定义
+# ═══════════════════════════════════════════════
+
+SKILL_SCHEMA = {
+    "type": "object",
+    "required": ["id", "name", "engine", "inputs", "outputs"],
+    "properties": {
+        "id": {"type": "string", "description": "唯一标识"},
+        "name": {"type": "string", "description": "技能名称"},
+        "description": {"type": "string", "description": "功能描述"},
+        "icon": {"type": "string", "description": "图标 emoji"},
+        "version": {"type": "string", "description": "版本号"},
+        "author": {"type": "string", "description": "作者"},
+        "engine": {"type": "string", "description": "执行引擎类型"},
+        "category": {"type": "string", "description": "分类"},
+        
+        # 引擎配置
+        "config": {
+            "type": "object",
+            "description": "引擎参数配置"
+        },
+        
+        # 输入输出定义
+        "inputs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["key", "label", "type"],
+                "properties": {
+                    "key": {"type": "string"},
+                    "label": {"type": "string"},
+                    "type": {"type": "string", "enum": ["text", "textarea", "number", "select", "multiselect", "json"]},
+                    "default": {},
+                    "required": {"type": "boolean"},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {"value": {}, "label": {"type": "string"}}}
+                    },
+                    "placeholder": {"type": "string"}
+                }
+            }
+        },
+        "outputs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "label": {"type": "string"},
+                    "type": {"type": "string"}
+                }
+            }
+        }
+    }
+}
+
+# ═══════════════════════════════════════════════
+# 内置执行引擎
+# ═══════════════════════════════════════════════
 
 class TextSummaryEngine:
     """文本摘要引擎"""
@@ -221,7 +280,6 @@ class SortEngine:
         except: sorted_items = sorted(items, key=str, reverse=(order == "desc"))
         
         return {"original": items, "sorted": sorted_items, "order": order, "count": len(items)}
-
 
 class TranslationEngine:
     """模拟翻译引擎（中英互译模拟）"""
@@ -463,54 +521,15 @@ class RegexEngine:
             return {"error": f"正则语法错误: {e}"}
 
 
-class PasswordGenEngine:
-    @staticmethod
-    def execute(input_data, config=None):
-        import string
-        length = int(input_data.get("length", (config or {}).get("length", 12)))
-        count = int(input_data.get("count", (config or {}).get("count", 3)))
-        chars = string.ascii_letters + string.digits
-        pws = ["".join(random.choice(chars) for _ in range(length)) for _ in range(count)]
-        return {"passwords": pws, "length": length}
+# ─── 引擎注册合并 ───
 
 
-class JSONToolEngine:
-    @staticmethod
-    def execute(input_data, config=None):
-        import json
-        text = input_data.get("text", "{}")
-        action = input_data.get("action", (config or {}).get("action", "format"))
-        try:
-            parsed = json.loads(text)
-            if action == "format":
-                return {"result": json.dumps(parsed, ensure_ascii=False, indent=2)}
-            return {"valid": True, "type": type(parsed).__name__}
-        except Exception as e:
-            return {"error": str(e)}
 
-
-# ═══════════════════════════════════════
+# ═══════════════════════════════════════════════
 # 引擎注册表
-# ═══════════════════════════════════════
+# ═══════════════════════════════════════════════
 
-
-class TranslatorEngine:
-    """翻译助手引擎"""
-    @staticmethod
-    def execute(input_data, config=None):
-        text = input_data.get("text", "")
-        direction = input_data.get("direction", (config or {}).get("direction", "zh_to_en"))
-        mock = {"zh_to_en": {"你好":"Hello","世界":"World","谢谢":"Thank you"},
-                "en_to_zh": {"hello":"你好","world":"世界","thank you":"谢谢"}}
-        tpl = mock.get(direction, {})
-        words = text.split()
-        result = " ".join(tpl.get(w.lower(), w) for w in words)
-        return {"original": text, "translation": result, "direction": direction}
-
-
-
-ENGINES = {
-    "text_summary": TextSummaryEngine,
+ENGINES = {"text_summary": TextSummaryEngine,
     "calculator": CalculatorEngine,
     "text_transform": TextTransformEngine,
     "data_filter": DataFilterEngine,
@@ -518,37 +537,78 @@ ENGINES = {
     "converter": ConverterEngine,
     "greeting": GreetingEngine,
     "sort": SortEngine,
-    "translator": TranslatorEngine,
-    "password_gen": PasswordGenEngine,
+,
+{
+    "translator": TranslationEngine,
+    "password_gen": PasswordGeneratorEngine,
+    "qrcode": QRCodeEngine,
     "text_diff": TextDiffEngine,
-    "json_tool": JSONToolEngine,
+    "json_tool": FormatJSONEngine,
+    "timestamp": TimestampEngine,
+    "color": ColorEngine,
+    "regex": RegexEngine,
+},
+{
+    "translator": TranslationEngine,
+    "password_gen": PasswordGeneratorEngine,
+    "qrcode": QRCodeEngine,
+    "text_diff": TextDiffEngine,
+    "json_tool": FormatJSONEngine,
+    "timestamp": TimestampEngine,
+    "color": ColorEngine,
+    "regex": RegexEngine,
+},
+{
+    "translator": TranslationEngine,
+    "password_gen": PasswordGeneratorEngine,
+    "qrcode": QRCodeEngine,
+    "text_diff": TextDiffEngine,
+    "json_tool": FormatJSONEngine,
     "timestamp": TimestampEngine,
     "color": ColorEngine,
     "regex": RegexEngine,
 }
 
-
-ENGINE_META = {
-    "calculator": {"name": "数据计算器", "icon": "🧮"},
-    "color": {"name": "颜色转换", "icon": "🎨"},
-    "converter": {"name": "格式转换", "icon": "📊"},
-    "data_filter": {"name": "数据筛选", "icon": "🔍"},
-    "greeting": {"name": "问候生成器", "icon": "👋"},
-    "info_extract": {"name": "信息提取器", "icon": "🔎"},
-    "json_tool": {"name": "JSON工具", "icon": "🔧"},
-    "password_gen": {"name": "密码生成器", "icon": "🔐"},
-    "regex": {"name": "正则测试器", "icon": "🔤"},
-    "sort": {"name": "数据排序", "icon": "📋"},
-    "text_diff": {"name": "文本对比", "icon": "📑"},
-    "text_summary": {"name": "文本摘要", "icon": "📝"},
-    "text_transform": {"name": "文本转换", "icon": "🔄"},
-    "timestamp": {"name": "时间戳转换", "icon": "⏰"},
-    "translator": {"name": "翻译助手", "icon": "🌐"},
+ENGINE_META = {"text_summary": {"name": "文本摘要", "icon": "📝", "description": "自动提取文本关键信息，生成摘要",
+{
+    "translator": {"name": "翻译助手", "icon": "🌐", "description": "中英文模拟翻译"},
+    "password_gen": {"name": "密码生成器", "icon": "🔐", "description": "生成高强度随机密码"},
+    "qrcode": {"name": "二维码生成", "icon": "📱", "description": "生成二维码数据"},
+    "text_diff": {"name": "文本对比", "icon": "📑", "description": "对比两段文本差异"},
+    "json_tool": {"name": "JSON 工具", "icon": "🔧", "description": "JSON 格式化/压缩/验证"},
+    "timestamp": {"name": "时间戳转换", "icon": "⏰", "description": "时间戳与日期互转"},
+    "color": {"name": "颜色转换", "icon": "🎨", "description": "HEX/RGB 颜色格式互转"},
+    "regex": {"name": "正则测试器", "icon": "🔤", "description": "测试正则表达式匹配"},
+}
+},
+    "calculator": {"name": "数据计算器", "icon": "🧮", "description": "对数字列表进行求和、平均、最大/最小值等计算"},
+    "text_transform": {"name": "文本转换", "icon": "🔄", "description": "大小写转换、反转、去空格等格式化"},
+    "data_filter": {"name": "数据筛选", "icon": "🔍", "description": "按关键词或条件筛选数据"},
+    "info_extract": {"name": "信息提取器", "icon": "🔎", "description": "提取邮箱、电话、网址、日期等信息"},
+    "converter": {"name": "格式转换", "icon": "📊", "description": "CSV↔JSON 格式互转"},
+    "greeting": {"name": "问候生成器", "icon": "👋", "description": "生成个性化问候语"},
+    "sort": {"name": "数据排序", "icon": "📋", "description": "正序/倒序排列数据"},
+{
+    "translator": {"name": "翻译助手", "icon": "🌐", "description": "中英文模拟翻译"},
+    "password_gen": {"name": "密码生成器", "icon": "🔐", "description": "生成高强度随机密码"},
+    "qrcode": {"name": "二维码生成", "icon": "📱", "description": "生成二维码数据"},
+    "text_diff": {"name": "文本对比", "icon": "📑", "description": "对比两段文本差异"},
+    "json_tool": {"name": "JSON 工具", "icon": "🔧", "description": "JSON 格式化/压缩/验证"},
+    "timestamp": {"name": "时间戳转换", "icon": "⏰", "description": "时间戳与日期互转"},
+    "color": {"name": "颜色转换", "icon": "🎨", "description": "HEX/RGB 颜色格式互转"},
+    "regex": {"name": "正则测试器", "icon": "🔤", "description": "测试正则表达式匹配"},
+},
+{
+    "translator": {"name": "翻译助手", "icon": "🌐", "description": "中英文模拟翻译"},
+    "password_gen": {"name": "密码生成器", "icon": "🔐", "description": "生成高强度随机密码"},
+    "qrcode": {"name": "二维码生成", "icon": "📱", "description": "生成二维码数据"},
+    "text_diff": {"name": "文本对比", "icon": "📑", "description": "对比两段文本差异"},
+    "json_tool": {"name": "JSON 工具", "icon": "🔧", "description": "JSON 格式化/压缩/验证"},
+    "timestamp": {"name": "时间戳转换", "icon": "⏰", "description": "时间戳与日期互转"},
+    "color": {"name": "颜色转换", "icon": "🎨", "description": "HEX/RGB 颜色格式互转"},
+    "regex": {"name": "正则测试器", "icon": "🔤", "description": "测试正则表达式匹配"},
 }
 
-# ═══════════════════════════════════════════════
-# 执行引擎 & 工具函数
-# ═══════════════════════════════════════════════
 
 def execute_skill(skill_def: dict, input_data: dict) -> dict:
     """执行一个 .skill 定义"""
@@ -559,6 +619,11 @@ def execute_skill(skill_def: dict, input_data: dict) -> dict:
         return {"status": "error", "error": f"未知引擎: {engine_name}"}
     
     engine = ENGINES[engine_name]
+    # 合并配置：input_data 覆盖 config 中的默认值
+    merged = {}
+    merged.update(config)
+    merged.update(input_data)
+    
     try:
         result = engine.execute(input_data, config)
         return {"status": "passed", "output": result, "engine": engine_name}
@@ -566,97 +631,144 @@ def execute_skill(skill_def: dict, input_data: dict) -> dict:
         return {"status": "error", "error": str(e), "engine": engine_name}
 
 
-def get_engine_input_schema(engine_name: str) -> list:
-    """获取引擎的输入参数定义"""
+def get_engine_input_schema(engine_name: str, config: dict = None) -> list:
+    """获取引擎的输入参数定义（用于生成表单）"""
     schemas = {
         "text_summary": [
-            {"key":"text","label":"输入文本","type":"textarea","placeholder":"粘贴需要摘要的长文本"},
-            {"key":"max_length","label":"摘要长度","type":"select","default":"short",
-             "options":[{"value":"short","label":"简短"},{"value":"medium","label":"中等"},{"value":"long","label":"详细"}]},
+            {"key": "text", "label": "输入文本", "type": "textarea", "placeholder": "粘贴需要摘要的长文本"},
+            {"key": "max_length", "label": "摘要长度", "type": "select", "default": "short",
+             "options": [{"value":"short","label":"简短"}, {"value":"medium","label":"中等"}, {"value":"long","label":"详细"}]},
         ],
         "calculator": [
-            {"key":"numbers","label":"数字列表","type":"textarea","default":"[10,20,30,40,50]"},
-            {"key":"operations","label":"计算类型","type":"multiselect","default":["sum","avg"],
-             "options":[{"value":"sum","label":"求和"},{"value":"avg","label":"平均"},{"value":"max","label":"最大"},{"value":"min","label":"最小"}]},
+            {"key": "numbers", "label": "数字列表", "type": "textarea", "default": "[10, 20, 30, 40, 50]",
+             "placeholder": "JSON 数组，如 [1,2,3] 或逗号分隔 1,2,3"},
+            {"key": "operations", "label": "计算类型", "type": "multiselect", "default": ["sum","avg"],
+             "options": [
+                 {"value":"sum","label":"求和"}, {"value":"avg","label":"平均"},
+                 {"value":"max","label":"最大"}, {"value":"min","label":"最小"},
+                 {"value":"median","label":"中位数"}, {"value":"count","label":"计数"}
+             ]},
         ],
         "text_transform": [
-            {"key":"text","label":"输入文本","type":"textarea","default":"Hello World"},
-            {"key":"transform_type","label":"转换类型","type":"select","default":"upper",
-             "options":[{"value":"upper","label":"全部大写"},{"value":"lower","label":"全部小写"},{"value":"reverse","label":"反转"}]},
+            {"key": "text", "label": "输入文本", "type": "textarea", "default": "Hello World"},
+            {"key": "transform_type", "label": "转换类型", "type": "select", "default": "upper",
+             "options": [
+                 {"value":"upper","label":"全部大写"}, {"value":"lower","label":"全部小写"},
+                 {"value":"title","label":"首字母大写"}, {"value":"reverse","label":"反转"},
+                 {"value":"trim","label":"去首尾空格"}, {"value":"no_space","label":"去所有空格"},
+             ]},
         ],
         "data_filter": [
-            {"key":"items","label":"数据列表","type":"textarea","default":'["苹果","香蕉","橘子"]'},
-            {"key":"keyword","label":"关键词","type":"text"},
-            {"key":"mode","label":"匹配方式","type":"select","default":"contains",
-             "options":[{"value":"contains","label":"包含"},{"value":"startswith","label":"开头匹配"},{"value":"equals","label":"完全相等"}]},
+            {"key": "items", "label": "数据列表", "type": "textarea", "default": '["苹果","香蕉","橘子","西瓜","葡萄"]'},
+            {"key": "keyword", "label": "关键词", "type": "text", "placeholder": "输入搜索关键词"},
+            {"key": "mode", "label": "匹配方式", "type": "select", "default": "contains",
+             "options": [
+                 {"value":"contains","label":"包含"}, {"value":"startswith","label":"开头匹配"},
+                 {"value":"endswith","label":"结尾匹配"}, {"value":"length_gt","label":"长度大于"},
+                 {"value":"equals","label":"完全相等"},
+             ]},
         ],
         "info_extract": [
-            {"key":"text","label":"输入文本","type":"textarea","default":"联系 support@test.com 或 13800000000"},
-            {"key":"extract_types","label":"提取类型","type":"multiselect","default":["email","phone"],
-             "options":[{"value":"email","label":"邮箱"},{"value":"phone","label":"电话"},{"value":"url","label":"网址"}]},
+            {"key": "text", "label": "输入文本", "type": "textarea",
+             "default": "请联系 support@example.com 或 13800000000，访问 https://example.com"},
+            {"key": "extract_types", "label": "提取类型", "type": "multiselect", "default": ["email","phone"],
+             "options": [
+                 {"value":"email","label":"邮箱"}, {"value":"phone","label":"电话"},
+                 {"value":"url","label":"网址"}, {"value":"date","label":"日期"},
+                 {"value":"number","label":"数字"}, {"value":"id_card","label":"身份证"},
+             ]},
         ],
         "converter": [
-            {"key":"data","label":"输入数据","type":"textarea","default":"name,age\n张三,28\n李四,35"},
-            {"key":"direction","label":"转换方向","type":"select","default":"csv_to_json",
-             "options":[{"value":"csv_to_json","label":"CSV→JSON"},{"value":"json_to_csv","label":"JSON→CSV"}]},
+            {"key": "data", "label": "输入数据", "type": "textarea",
+             "default": "name,age,city\n张三,28,北京\n李四,35,上海"},
+            {"key": "direction", "label": "转换方向", "type": "select", "default": "csv_to_json",
+             "options": [{"value":"csv_to_json","label":"CSV → JSON"}, {"value":"json_to_csv","label":"JSON → CSV"}]},
         ],
         "greeting": [
-            {"key":"name","label":"称呼","type":"text","default":"朋友"},
-            {"key":"style","label":"风格","type":"select","default":"casual",
-             "options":[{"value":"casual","label":"日常随意"},{"value":"formal","label":"正式"},{"value":"warm","label":"温暖亲切"}]},
+            {"key": "name", "label": "称呼/名称", "type": "text", "default": "朋友"},
+            {"key": "style", "label": "风格", "type": "select", "default": "casual",
+             "options": [{"value":"casual","label":"日常随意"}, {"value":"formal","label":"正式商务"},
+                         {"value":"warm","label":"温暖亲切"}, {"value":"funny","label":"幽默风趣"}]},
+            {"key": "language", "label": "语言", "type": "select", "default": "zh",
+             "options": [{"value":"zh","label":"中文"}, {"value":"en","label":"English"}]},
         ],
         "sort": [
-            {"key":"items","label":"数据列表","type":"textarea","default":"[5,3,8,1,9]"},
-            {"key":"order","label":"排序方式","type":"select","default":"asc",
-             "options":[{"value":"asc","label":"正序"},{"value":"desc","label":"倒序"}]},
-        ],
-        "translator": [
-            {"key":"text","label":"翻译文本","type":"textarea","default":"你好世界"},
-            {"key":"direction","label":"方向","type":"select","default":"zh_to_en",
-             "options":[{"value":"zh_to_en","label":"中→英"},{"value":"en_to_zh","label":"英→中"}]},
-        ],
-        "password_gen": [
-            {"key":"length","label":"密码长度","type":"number","default":12},
-            {"key":"count","label":"生成数量","type":"number","default":3},
-        ],
-        "text_diff": [
-            {"key":"text_a","label":"文本 A","type":"textarea"},
-            {"key":"text_b","label":"文本 B","type":"textarea"},
-        ],
-        "json_tool": [
-            {"key":"text","label":"JSON 内容","type":"textarea","default":'{"name":"test"}'},
-            {"key":"action","label":"操作","type":"select","default":"format",
-             "options":[{"value":"format","label":"格式化"},{"value":"minify","label":"压缩"}]},
-        ],
-        "timestamp": [
-            {"key":"timestamp","label":"时间戳或日期","type":"text","default":"","placeholder":"如: 1715856000 或 2026-01-01"},
-            {"key":"direction","label":"转换方向","type":"select","default":"ts_to_date",
-             "options":[{"value":"ts_to_date","label":"时间戳→日期"},{"value":"date_to_ts","label":"日期→时间戳"}]},
-        ],
-        "color": [
-            {"key":"color","label":"颜色值","type":"text","default":"#1a56d6","placeholder":"#HEX 格式"},
-        ],
-        "regex": [
-            {"key":"pattern","label":"正则表达式","type":"text","default":"\\d+","placeholder":"如: \\d+ 匹配数字"},
-            {"key":"text","label":"测试文本","type":"textarea","default":"abc123def456"},
+            {"key": "items", "label": "数据列表", "type": "textarea", "default": "[5, 3, 8, 1, 9, 2, 7]"},
+            {"key": "order", "label": "排序方式", "type": "select", "default": "asc",
+             "options": [{"value":"asc","label":"正序（小→大）"}, {"value":"desc","label":"倒序（大→小）"}]},
         ],
     }
     return schemas.get(engine_name, [])
 
 
 # ═══════════════════════════════════════════════
-# 预设 .skill 定义
+# 预设 .skill 定义（可直接下载使用）
 # ═══════════════════════════════════════════════
 
 PRESET_SKILLS = [
-    {"id":"text_summary","name":"文本摘要","description":"自动提取文本关键信息","icon":"📝","engine":"text_summary","category":"文本"},
-    {"id":"calculator","name":"数据计算器","description":"求和/平均/最大/最小","icon":"🧮","engine":"calculator","category":"数据"},
-    {"id":"info_extract","name":"信息提取器","description":"提取邮箱/电话/网址","icon":"🔎","engine":"info_extract","category":"文本"},
-    {"id":"greeting","name":"问候生成器","description":"个性化问候语","icon":"👋","engine":"greeting","category":"文本"},
-    {"id":"translator","name":"翻译助手","description":"中英文翻译","icon":"🌐","engine":"translator","category":"文本"},
-    {"id":"password_gen","name":"密码生成器","description":"高强度随机密码","icon":"🔐","engine":"password_gen","category":"安全"},
-    {"id":"json_tool","name":"JSON工具","description":"格式化/压缩/验证","icon":"🔧","engine":"json_tool","category":"开发"},
-    {"id":"timestamp","name":"时间戳转换","description":"时间戳与日期互转","icon":"⏰","engine":"timestamp","category":"工具"},
-    {"id":"color","name":"颜色转换","description":"HEX/RGB颜色互转","icon":"🎨","engine":"color","category":"工具"},
-    {"id":"regex","name":"正则测试器","description":"测试正则表达式","icon":"🔤","engine":"regex","category":"开发"},
+    {
+        "id": "text_summary",
+        "name": "文本摘要",
+        "description": "自动提取文本关键信息，生成简洁摘要",
+        "icon": "📝", "version": "1.0.0", "author": "AI Platform",
+        "engine": "text_summary", "category": "文本处理",
+        "config": {"max_length": "short"},
+        "inputs": [
+            {"key": "text", "label": "输入文本", "type": "textarea"},
+            {"key": "max_length", "label": "摘要长度", "type": "select", "default": "short",
+             "options": [{"value":"short","label":"简短"}, {"value":"medium","label":"中等"}, {"value":"long","label":"详细"}]},
+        ],
+        "outputs": [{"key":"summary","label":"摘要结果","type":"text"}, {"key":"compression_ratio","label":"压缩比","type":"text"}]
+    },
+    {
+        "id": "calculator",
+        "name": "数据计算器",
+        "description": "对数字列表进行求和、平均、最大/最小等统计计算",
+        "icon": "🧮", "version": "1.0.0", "author": "AI Platform",
+        "engine": "calculator", "category": "数据处理",
+        "config": {"operations": ["sum","avg","max","min"]},
+        "inputs": [
+            {"key": "numbers", "label": "数字列表", "type": "textarea"},
+            {"key": "operations", "label": "计算类型", "type": "multiselect", "default": ["sum","avg"],
+             "options": [
+                 {"value":"sum","label":"求和"}, {"value":"avg","label":"平均"},
+                 {"value":"max","label":"最大"}, {"value":"min","label":"最小"},
+                 {"value":"median","label":"中位数"},
+             ]},
+        ],
+        "outputs": [{"key":"sum","label":"总和","type":"number"}, {"key":"average","label":"平均","type":"number"}]
+    },
+    {
+        "id": "info_extract",
+        "name": "信息提取器",
+        "description": "从文本中自动提取邮箱、电话、网址等关键信息",
+        "icon": "🔎", "version": "1.0.0", "author": "AI Platform",
+        "engine": "info_extract", "category": "文本处理",
+        "config": {"types": ["email","phone","url"]},
+        "inputs": [
+            {"key": "text", "label": "输入文本", "type": "textarea"},
+            {"key": "extract_types", "label": "提取类型", "type": "multiselect", "default": ["email","phone"],
+             "options": [
+                 {"value":"email","label":"邮箱"}, {"value":"phone","label":"电话"},
+                 {"value":"url","label":"网址"}, {"value":"date","label":"日期"},
+                 {"value":"number","label":"数字"},
+             ]},
+        ],
+        "outputs": [{"key":"extracted","label":"提取结果","type":"json"}]
+    },
+    {
+        "id": "greeting",
+        "name": "问候生成器",
+        "description": "根据名称和风格生成个性化问候语",
+        "icon": "👋", "version": "1.0.0", "author": "AI Platform",
+        "engine": "greeting", "category": "文本处理",
+        "inputs": [
+            {"key": "name", "label": "称呼", "type": "text"},
+            {"key": "style", "label": "风格", "type": "select", "default": "casual",
+             "options": [{"value":"casual","label":"日常随意"}, {"value":"formal","label":"正式商务"}, {"value":"warm","label":"温暖亲切"}]},
+            {"key": "language", "label": "语言", "type": "select", "default": "zh",
+             "options": [{"value":"zh","label":"中文"}, {"value":"en","label":"English"}]},
+        ],
+        "outputs": [{"key":"greeting","label":"问候语","type":"text"}]
+    },
 ]

@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime
 from contextlib import redirect_stdout, redirect_stderr
 from typing import Optional
+from app.skill_templates import match_templates, generate_skill_from_description, get_template_list, get_template_detail
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -626,6 +627,486 @@ async def mcp_tools():
 # ═══════════════════════════════════════════════
 # 启动
 # ═══════════════════════════════════════════════
+
+
+
+# ═══════════════════════════════════════════════
+# API: AI 辅助 & 模板系统
+# ═══════════════════════════════════════════════
+
+@app.get("/api/templates")
+async def list_templates():
+    """获取所有 Skill 模板（零代码使用）"""
+    return {"templates": get_template_list(), "total": len(get_template_list())}
+
+@app.get("/api/templates/{tid}")
+async def template_detail(tid: str):
+    """获取模板详情"""
+    t = get_template_detail(tid)
+    if not t:
+        raise HTTPException(404, "模板不存在")
+    return {"template": t}
+
+@app.post("/api/skills/ai-generate")
+async def ai_generate_skill(data: dict):
+    """AI 根据自然语言描述生成 Skill"""
+    description = data.get("description", "")
+    if not description.strip():
+        raise HTTPException(400, "请描述你想要的功能")
+    
+    # 使用模板匹配引擎
+    matches = match_templates(description, top_k=3)
+    
+    # 如果已有同名 Skill，自动生成新名字
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            for t in matches:
+                cursor.execute("SELECT COUNT(*) AS c FROM user_skills WHERE name=%s", (t["name"],))
+                count = cursor.fetchone()["c"]
+                if count > 0:
+                    t["name"] = f"{t['name']}_{count+1}"
+    finally:
+        conn.close()
+    
+    return {"matches": matches, "total": len(matches)}
+
+@app.post("/api/skills/from-template")
+async def create_from_template(data: dict):
+    """从模板创建 Skill（用户配置参数 → 生成完整 Skill 并保存）"""
+    template_id = data.get("template_id", "")
+    params = data.get("parameters", {})
+    
+    t = get_template_detail(template_id)
+    if not t:
+        raise HTTPException(404, "模板不存在")
+    
+    # 生成参数代码
+    param_vars = "\n    ".join([f'{p["key"]} = input_data.get("{p["key"]}", {json.dumps(p.get("default", ""))})' for p in t["parameters"]])
+    
+    # 构建完整代码
+    full_code = t["code"]
+    
+    # 保存到数据库
+    conn = get_db()
+    try:
+        with conn.cursor() as cursor:
+            # 检查重名
+            cursor.execute("SELECT COUNT(*) AS c FROM user_skills WHERE name=%s", (t["name"],))
+            if cursor.fetchone()["c"] > 0:
+                name = f"{t['name']}_{int(time.time())}"
+            else:
+                name = t["name"]
+            
+            cursor.execute(
+                "INSERT INTO user_skills (name,description,category,code,inputs_schema,outputs_schema,status) VALUES (%s,%s,%s,%s,%s,%s,'published')",
+                (name, t["description"], t["category"], full_code,
+                 json.dumps(params), json.dumps({"result": "处理结果"})))
+            conn.commit()
+            return {"id": cursor.lastrowid, "name": name, "message": "创建成功"}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════
+# 零代码页面
+# ═══════════════════════════════════════════════
+
+WIZARD_HTML = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Skill 工坊 - 零代码创建</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+body{background:#0a1628;color:#e0e8f0;min-height:100vh}
+.topbar{background:#0d1d3a;border-bottom:1px solid #1e3d70;padding:14px 32px;display:flex;align-items:center;gap:20px}
+.topbar .title{font-weight:700;font-size:18px}
+.topbar a{color:#90b8f8;text-decoration:none;font-size:13px}
+.topbar a:hover{color:#60a5fa}
+.container{padding:32px;max-width:1200px;margin:0 auto}
+
+/* 步骤指示器 */
+.steps{display:flex;gap:8px;margin-bottom:32px}
+.step{padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;background:#0d1d3a;border:1px solid #1e3d70;color:#8098c0;display:flex;align-items:center;gap:8px}
+.step.active{background:#1a56d633;border-color:#3b82f6;color:#60a5fa}
+.step.done{background:#05969033;border-color:#0dcea6;color:#0dcea6}
+
+/* 输入区 */
+.section{background:#0d1d3a;border:1px solid #1e3d70;border-radius:12px;padding:28px;margin-bottom:20px}
+.section h2{font-size:20px;margin-bottom:4px}
+.section .hint{color:#8098c0;font-size:13px;margin-bottom:20px}
+
+/* 文本框 */
+textarea, input[type="text"], select{width:100%;background:#0a1628;border:1px solid #1e3d70;color:#e0e8f0;padding:12px 16px;border-radius:8px;font-size:14px;outline:none;transition:border-color .3s}
+textarea:focus, input:focus, select:focus{border-color:#3b82f6}
+textarea{min-height:100px;resize:vertical;line-height:1.6}
+
+/* 模板卡片 */
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:16px}
+.tpl-card{background:#0a1628;border:1px solid #1e3d70;border-radius:10px;padding:16px;cursor:pointer;transition:all .3s}
+.tpl-card:hover{border-color:#3b82f6;transform:translateY(-2px)}
+.tpl-card.selected{border-color:#3b82f6;background:#1a56d622}
+.tpl-card .icon{font-size:28px;margin-bottom:6px}
+.tpl-card .name{font-size:14px;font-weight:600;margin-bottom:4px}
+.tpl-card .desc{font-size:11px;color:#8098c0}
+
+/* 参数表单 */
+.param-group{margin-bottom:16px}
+.param-group label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#b0c4e0}
+.param-group .optional{color:#8098c0;font-size:11px;font-weight:400}
+.param-group .help{color:#6080b0;font-size:11px;margin-top:4px}
+select{appearance:auto;padding:10px 14px;font-size:13px}
+.param-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* 结果 */
+.result-box{background:#0a1628;border:1px solid #1e3d70;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;white-space:pre-wrap;min-height:60px;color:#b0c4e0;margin-top:12px}
+
+/* 匹配结果 */
+.match-item{background:#0a1628;border:1px solid #1e3d70;border-radius:8px;padding:16px;margin-bottom:8px;cursor:pointer;transition:all .3s}
+.match-item:hover{border-color:#3b82f6}
+.match-item .name{font-size:15px;font-weight:600}
+.match-item .desc{color:#8098c0;font-size:12px;margin-top:2px}
+.match-item .score{color:#059690;font-size:11px}
+
+.btn{padding:10px 28px;border:none;border-radius:8px;cursor:pointer;font-weight:600;font-size:14px;transition:all .3s;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:linear-gradient(135deg,#1a56d6,#3b82f6);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(26,86,214,.3)}
+.btn-success{background:linear-gradient(135deg,#059690,#0dcea6);color:#fff}
+.btn-success:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(5,150,144,.3)}
+.btn-outline{background:transparent;border:1px solid #1e3d70;color:#90a8c8}
+.btn-outline:hover{border-color:#3b82f6;color:#fff}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+
+.toast{position:fixed;top:24px;right:24px;padding:14px 24px;border-radius:8px;font-size:14px;font-weight:600;z-index:999;animation:slideIn .3s}
+.toast.success{background:#059690;color:#fff}
+.toast.error{background:#dc3545;color:#fff}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+.badge{padding:3px 10px;border-radius:12px;font-size:11px;background:#1a56d633;color:#60a5fa;display:inline-block}
+
+/* 加载动画 */
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-radius:50%;border-top-color:#fff;animation:spin .6s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="title">🧠 AI Skill 工坊</span>
+  <a href="/">← 首页</a>
+  <span style="flex:1"></span>
+  <span style="font-size:12px;color:#8098c0">三步创建 · 无需编程</span>
+</div>
+<div class="container">
+  <!-- 步骤 -->
+  <div class="steps">
+    <div class="step active" id="step1Ind">① 描述需求</div>
+    <div class="step" id="step2Ind">② 确认模板</div>
+    <div class="step" id="step3Ind">③ 配置 & 测试</div>
+  </div>
+
+  <!-- 步骤1: 描述需求 -->
+  <div class="section" id="step1">
+    <h2>🎯 你想要什么功能？</h2>
+    <div class="hint">用一句话描述你想做的事情，AI 会自动匹配最合适的模板</div>
+    <textarea id="descInput" placeholder="例如：&#10;• 对一段文本生成摘要&#10;• 把 Excel 数据从 CSV 转成 JSON&#10;• 从文章中提取所有邮箱和电话&#10;• 给一组数字计算总和和平均值&#10;• 根据用户名字生成问候语" rows="4"></textarea>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="aiMatch()">🤖 AI 匹配模板</button>
+      <button class="btn btn-outline" onclick="showAllTemplates()">📋 浏览全部模板</button>
+    </div>
+    <div id="aiLoading" class="hidden" style="margin-top:16px;color:#8098c0"><span class="spinner"></span> 正在匹配...</div>
+    <div id="aiResults" class="hidden" style="margin-top:16px">
+      <h3 style="font-size:15px;margin-bottom:12px">🤖 推荐模板</h3>
+      <div id="matchList"></div>
+    </div>
+    <div id="allTemplates" class="hidden" style="margin-top:16px">
+      <h3 style="font-size:15px;margin-bottom:12px">📋 全部模板</h3>
+      <div class="tpl-grid" id="tplGrid"></div>
+    </div>
+  </div>
+
+  <!-- 步骤2: 确认模板 -->
+  <div class="section hidden" id="step2">
+    <h2>✅ 确认模板</h2>
+    <div class="hint">我们已为你匹配到以下模板，确认或换一个</div>
+    <div id="selectedTemplate"></div>
+    <div style="margin-top:16px;display:flex;gap:8px">
+      <button class="btn btn-success" onclick="goStep3()">确认，下一步 →</button>
+      <button class="btn btn-outline" onclick="goStep1()">← 重新描述</button>
+    </div>
+  </div>
+
+  <!-- 步骤3: 配置 & 测试 -->
+  <div class="section hidden" id="step3">
+    <h2>⚙️ 配置参数</h2>
+    <div class="hint">调整参数后直接测试效果</div>
+    <div id="paramForm"></div>
+    <div style="margin-top:20px;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-success" onclick="testSkill()">▶ 立即测试</button>
+      <button class="btn btn-primary" onclick="saveSkill()">💾 保存为 Skill</button>
+      <span id="testStatus" style="font-size:13px;color:#8098c0"></span>
+    </div>
+    <div id="testResult" class="hidden result-box" style="margin-top:16px"></div>
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-outline" onclick="goStep2()">← 返回选模板</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let selectedTemplate = null;
+let selectedParams = {};
+
+// ── 步骤控制 ──
+function showStep(n) {
+  document.getElementById('step1').classList.toggle('hidden', n!==1);
+  document.getElementById('step2').classList.toggle('hidden', n!==2);
+  document.getElementById('step3').classList.toggle('hidden', n!==3);
+  for(let i=1;i<=3;i++){
+    const el = document.getElementById('step'+i+'Ind');
+    el.classList.toggle('active', i===n);
+    el.classList.toggle('done', i<n);
+  }
+}
+
+function goStep1(){showStep(1)}
+function goStep2(){showStep(2)}
+function goStep3(){renderParamForm();showStep(3)}
+
+// ── AI 匹配 ──
+async function aiMatch(){
+  const desc = document.getElementById('descInput').value.trim();
+  if(!desc){showToast('请先描述你想要的功能','error');return}
+  
+  document.getElementById('aiLoading').classList.remove('hidden');
+  document.getElementById('aiResults').classList.add('hidden');
+  document.getElementById('allTemplates').classList.add('hidden');
+  
+  try{
+    const r = await fetch('/api/skills/ai-generate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({description: desc})
+    });
+    const d = await r.json();
+    
+    document.getElementById('aiLoading').classList.add('hidden');
+    
+    if(d.matches && d.matches.length){
+      document.getElementById('aiResults').classList.remove('hidden');
+      document.getElementById('matchList').innerHTML = d.matches.map((m,i)=>`
+        <div class="match-item" onclick="selectMatch(${i})">
+          <div class="name">${m.icon||'🧩'} ${m.name}</div>
+          <div class="desc">${m.description}</div>
+          <div class="score">匹配度: ${m.match_score||'N/A'} · 分类: ${m.category||'通用'}</div>
+        </div>
+      `).join('');
+      // 默认选中第一个
+      selectMatch(0);
+    }
+  }catch(e){showToast('请求失败: '+e.message,'error');document.getElementById('aiLoading').classList.add('hidden')}
+}
+
+// ── 全模板浏览 ──
+async function showAllTemplates(){
+  document.getElementById('allTemplates').classList.toggle('hidden');
+  if(!document.getElementById('allTemplates').classList.contains('hidden')){
+    const r = await fetch('/api/templates');
+    const d = await r.json();
+    document.getElementById('tplGrid').innerHTML = d.templates.map(t=>`
+      <div class="tpl-card" onclick="selectTemplateFromView('${t.id}')">
+        <div class="icon">${t.icon||'🧩'}</div>
+        <div class="name">${t.name}</div>
+        <div class="desc">${t.description}</div>
+      </div>
+    `).join('');
+  }
+}
+
+// ── 选择模板 ──
+async function selectMatch(index){
+  const r = await fetch('/api/skills/ai-generate',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({description: document.getElementById('descInput').value.trim()})
+  });
+  const d = await r.json();
+  if(!d.matches || !d.matches[index]) return;
+  
+  const t = d.matches[index];
+  
+  // 获取完整模板
+  const r2 = await fetch('/api/templates');
+  const d2 = await r2.json();
+  const full = d2.templates.find(tm => tm.id === t.id) || d2.templates[0];
+  
+  // 获取详情
+  const r3 = await fetch('/api/templates/'+full.id);
+  const d3 = await r3.json();
+  
+  selectedTemplate = d3.template;
+  renderSelectedTemplate(d3.template);
+}
+
+async function selectTemplateFromView(tid){
+  const r = await fetch('/api/templates/'+tid);
+  const d = await r.json();
+  selectedTemplate = d.template;
+  renderSelectedTemplate(d.template);
+}
+
+function renderSelectedTemplate(t){
+  document.getElementById('selectedTemplate').innerHTML = `
+    <div style="background:#0a1628;border:1px solid #1e3d70;border-radius:10px;padding:20px">
+      <div style="font-size:36px;margin-bottom:8px">${t.icon||'🧩'}</div>
+      <h3 style="font-size:18px;margin-bottom:4px">${t.name}</h3>
+      <p style="color:#8098c0;font-size:13px">${t.description}</p>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <span class="badge">${t.category||'通用'}</span>
+        ${(t.keywords||[]).slice(0,4).map(k=>'<span class="badge" style="background:#05969033;color:#0dcea6">'+k+'</span>').join('')}
+      </div>
+    </div>
+  `;
+  showStep(2);
+}
+
+// ── 参数配置 ──
+function renderParamForm(){
+  if(!selectedTemplate) return;
+  const params = selectedTemplate.parameters || [];
+  
+  document.getElementById('paramForm').innerHTML = params.map((p,idx)=>{
+    const id = 'param_'+p.key;
+    let html = '<div class="param-group"><label>'+(p.optional?'':'* ')+p.label+(p.optional?' <span class="optional">(可选)</span>':'')+'</label>';
+    
+    if(p.type === 'textarea'){
+      html += '<textarea id="'+id+'" placeholder="'+(p.placeholder||'')+'" rows="3">'+(p.default||'')+'</textarea>';
+    } else if(p.type === 'text'){
+      html += '<input type="text" id="'+id+'" placeholder="'+(p.placeholder||'')+'" value="'+(p.default||'')+'">';
+    } else if(p.type === 'number'){
+      html += '<input type="number" id="'+id+'" value="'+(p.default||'')+'" placeholder="'+(p.placeholder||'')+'">';
+    } else if(p.type === 'select'){
+      html += '<select id="'+id+'">';
+      (p.options||[]).forEach(o => {
+        html += '<option value="'+o.value+'"'+(o.value===p.default?' selected':'')+'>'+o.label+'</option>';
+      });
+      html += '</select>';
+    } else if(p.type === 'multiselect'){
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
+      (p.options||[]).forEach(o => {
+        const checked = (p.default||[]).includes(o.value);
+        html += '<label style="display:flex;align-items:center;gap:6px;background:#0a1628;border:1px solid '+(checked?'#3b82f6':'#1e3d70')+';border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">'+
+          '<input type="checkbox" value="'+o.value+'" '+(checked?'checked':'')+' style="accent-color:#3b82f6" onchange="this.parentElement.style.borderColor=this.checked?'+"'"+'#3b82f6'+"'"+':'+"'"+'#1e3d70'+"'"+'"> '+o.label+'</label>';
+      });
+      html += '</div>';
+    }
+    
+    if(p.placeholder) html += '<div class="help">例: '+p.placeholder+'</div>';
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+// ── 测试 ──
+async function testSkill(){
+  if(!selectedTemplate) return;
+  
+  const inputData = {};
+  (selectedTemplate.parameters||[]).forEach(p => {
+    const el = document.getElementById('param_'+p.key);
+    if(!el) return;
+    if(p.type === 'multiselect'){
+      inputData[p.key] = Array.from(el.querySelectorAll('input:checked')).map(cb => cb.value);
+    } else if(p.type === 'number'){
+      inputData[p.key] = parseFloat(el.value) || 0;
+    } else if(p.type === 'textarea' || p.type === 'text'){
+      inputData[p.key] = el.value;
+    } else {
+      inputData[p.key] = el.value;
+    }
+  });
+  
+  document.getElementById('testStatus').textContent = '⏳ 测试中...';
+  document.getElementById('testResult').classList.add('hidden');
+  
+  try{
+    const r = await fetch('/api/test-run',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code: selectedTemplate.code, input_data: inputData})
+    });
+    const result = await r.json();
+    
+    document.getElementById('testResult').classList.remove('hidden');
+    
+    let out = '';
+    if(result.status === 'passed'){
+      out += '✅ 测试通过 ('+result.duration_ms+'ms)\\n\\n';
+      if(result.output !== undefined){
+        out += '📦 输出结果:\\n'+JSON.stringify(result.output, null, 2);
+      }
+    } else {
+      out += '❌ 测试失败 ('+result.duration_ms+'ms)\\n';
+      if(result.error) out += '\\n错误: '+result.error;
+    }
+    document.getElementById('testResult').textContent = out;
+    document.getElementById('testStatus').textContent = '✅ 测试完成';
+  } catch(e){
+    document.getElementById('testResult').classList.remove('hidden');
+    document.getElementById('testResult').textContent = '❌ 请求失败: '+e.message;
+    document.getElementById('testStatus').textContent = '❌ 错误';
+  }
+}
+
+// ── 保存 ──
+async function saveSkill(){
+  if(!selectedTemplate) return;
+  
+  const params = {};
+  (selectedTemplate.parameters||[]).forEach(p => {
+    const el = document.getElementById('param_'+p.key);
+    if(!el) return;
+    params[p.key] = el.value;
+  });
+  
+  document.getElementById('testStatus').textContent = '⏳ 保存中...';
+  
+  try{
+    const r = await fetch('/api/skills/from-template',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({template_id: selectedTemplate.id, parameters: params})
+    });
+    const d = await r.json();
+    showToast('✅ Skill "'+d.name+'" 创建成功！','success');
+    document.getElementById('testStatus').textContent = '✅ 已保存';
+  } catch(e){
+    showToast('❌ 保存失败: '+e.message,'error');
+    document.getElementById('testStatus').textContent = '❌ 保存失败';
+  }
+}
+
+// ── 提示消息 ──
+function showToast(msg, type){
+  const t = document.createElement('div');
+  t.className = 'toast '+type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 3000);
+}
+</script>
+</body>
+</html>"""
+
+@app.get("/wizard", response_class=HTMLResponse)
+async def skill_wizard():
+    return WIZARD_HTML
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ai-test-python": {
+      "command": "python",
+      "args": ["mcp-servers/python/base_server.py"],
+      "env": {}
+    },
+    "ai-test-node": {
+      "command": "node",
+      "args": ["mcp-servers/node/dist/index.js"],
+      "env": {}
+    }
+  }
+}

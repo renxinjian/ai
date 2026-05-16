@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-test-api
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=app
+      - DB_PASSWORD=NQ8azLqKGH9z4LqO
+      - DB_NAME=app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+  mysql:
+    image: mysql:8.4
+    container_name: ai-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: mpP/6s5gdmGmVeMO
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: NQ8azLqKGH9z4LqO
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./config/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-network
+
+volumes:
+  mysql_data:
+
+networks:
+  ai-network:
+    driver: bridge

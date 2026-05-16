@@ -1,0 +1,22 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 构建发布包
+      run: |
+        git archive --format=zip --output=ai-test-${{ github.ref_name }}.zip HEAD
+    
+    - name: 创建 Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ai-test-${{ github.ref_name }}.zip
+        generate_release_notes: true

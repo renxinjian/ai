@@ -1,0 +1,19 @@
+# AI Testing 项目配置
+version: "1.0.0"
+name: "AI Testing Project"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  
+skills:
+  enabled:
+    - browser
+    - cloud
+    - devtools
+    - search
+    
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/ai-test.log"
